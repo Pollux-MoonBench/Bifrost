@@ -4,7 +4,7 @@ Bifrost is a custom LED controller for the **AYN Thor** handheld.\
 It provides a collection of LED animations that can run in the
 background, including:
 
--   **Ambilight**\
+-   **Ambilight**
 -   **Audio Reactive**
 -   **Ambi Aurora** (a mix of Ambilight + Audio Reactive)
 -   **Classic animations:** Breath, Rainbow, Pulse, and more
@@ -14,7 +14,7 @@ AYN Thor while keeping performance and battery consumption in mind.
 
 > ⚠️ **Important:** For animations to work, **Bifrost must stay alive in
 > the background**.\
-> Closing the app or restricting background activity will stop LED
+> Closing the app or restricting notification (and screen recording for Ambilight) activity will stop LED
 > updates.
 
 ------------------------------------------------------------------------
