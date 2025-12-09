@@ -1,6 +1,6 @@
 # Bifrost -- LED Controller for the AYN Thor
 
-Bifrost is a custom LED controller for the **AYN Thor** handheld (and might work for other AYN handhelds).\
+Bifrost is a custom LED controller for the **AYN Thor** handheld (and might work for other handhelds).\
 It provides a collection of LED animations that can run in the
 background, including:
 
@@ -40,8 +40,8 @@ hybrid effect.
 
 ### **Animation Presets**
 
--   Save multiple animation presets with their own settings\
--   Automatically loads the **last selected preset** on app launch\
+-   Save multiple animation presets with their own settings
+-   Automatically loads the **last selected preset** on app launch
 -   Easy organization and quick switching
 
 ### **Performance Profiles**
@@ -66,6 +66,14 @@ locally and is reduced to minimal pixel data for efficiency.
 
 ------------------------------------------------------------------------
 
+## 🎮 Other Tested Devices
+Bifrost has been tested and confirmed to work on the following devices:
+
+-    Retroid Pocket Mini V2 (known issues)
+-    Retroid Pocket 5
+
+------------------------------------------------------------------------
+
 ## ⚠️ Beta Status
 
 Bifrost is currently in **beta**, and unexpected behavior may still
@@ -73,9 +81,12 @@ occur.
 
 ### **Known issues**
 
--   Random crashes under certain conditions\
+-   Random crashes under certain conditions
 -   Granting notification permission at launch may cause the LED toggle
     switch to appear disabled even though animations continue running
+-   Ambilight and AmbiAurora can ealily averate colors to black when using old aspect ratio like 4:3
+-   Ambilight and AmbiAurora can ealily average colors to white or desaturated color
+-   On the Retroid Pocket Mini, only the left stick turns on in Ambilight mode
 
 If you encounter issues, please open a GitHub issue or check the
 existing ones.
