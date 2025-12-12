@@ -40,7 +40,8 @@ class StaticAnimation(
     private val runnable = object : Runnable {
         override fun run() {
             if (!running) return
-            val factor = 0.05f + 0.45f * lerpStrength
+
+            val factor = 0.15f + 0.7f * lerpStrength
             currentColor = lerpColor(currentColor, targetColor, factor)
             currentBrightness = lerpInt(currentBrightness, targetBrightness, factor)
 
