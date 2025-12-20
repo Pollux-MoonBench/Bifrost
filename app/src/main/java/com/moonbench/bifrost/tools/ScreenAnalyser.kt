@@ -12,6 +12,37 @@ import java.nio.ByteBuffer
 import kotlin.math.pow
 import kotlin.math.sqrt
 
+private const val DEFAULT_CAPTURE_WIDTH = 2
+private const val DEFAULT_CAPTURE_HEIGHT = 1
+private const val CUSTOM_SAMPLING_WIDTH = 32
+private const val IMAGE_READER_MAX_IMAGES = 2
+
+private const val SATURATION_BOOST_MULTIPLIER = 2.5f
+private const val SATURATION_BOOST_BASE = 1.0f
+
+private const val BRIGHTNESS_FACTOR = 10.0
+private const val BRIGHTNESS_POWER = 2.0
+private const val BRIGHTNESS_WEIGHT_RATIO = 0.15
+
+private const val SATURATION_POWER = 0.3
+private const val SATURATION_MULTIPLIER = 4.0
+private const val SATURATION_WEIGHT_RATIO = 0.55
+
+private const val COLORFULNESS_MULTIPLIER = 5.0
+private const val COLORFULNESS_WEIGHT_RATIO = 0.3
+
+private const val MIN_WEIGHT = 0.01
+
+private const val RGB_NORMALIZE = 255.0
+private const val RGB_MAX = 255
+
+private const val BRIGHTNESS_RED_COEFF = 0.299
+private const val BRIGHTNESS_GREEN_COEFF = 0.587
+private const val BRIGHTNESS_BLUE_COEFF = 0.114
+
+private const val HUE_CYCLE = 6f
+private const val HUE_STEP = 60f
+
 data class ScreenColors(
     val leftColor: Int = Color.BLACK,
     val rightColor: Int = Color.BLACK
@@ -22,10 +53,12 @@ class ScreenAnalyzer(
     private val displayMetrics: DisplayMetrics,
     var performanceProfile: PerformanceProfile = PerformanceProfile.HIGH,
     var useCustomSampling: Boolean = false,
+    var saturationBoost: Float = 0.0f,
+    var topPixelPercentage: Float = 0.3f,
     private val onColorsAnalyzed: (ScreenColors) -> Unit
 ) {
-    private var captureWidth = 2
-    private var captureHeight = 1
+    private var captureWidth = DEFAULT_CAPTURE_WIDTH
+    private var captureHeight = DEFAULT_CAPTURE_HEIGHT
     private var lastProcessedTime = 0L
     private var lastEmittedColors: ScreenColors? = null
 
@@ -40,8 +73,14 @@ class ScreenAnalyzer(
         if (isRunning) return
         isRunning = true
 
-        captureWidth = if (useCustomSampling) 32 else 2
-        captureHeight = 1
+        if (useCustomSampling) {
+            captureWidth = CUSTOM_SAMPLING_WIDTH
+            val aspectRatio = displayMetrics.heightPixels.toFloat() / displayMetrics.widthPixels.toFloat()
+            captureHeight = (captureWidth * aspectRatio).toInt().coerceAtLeast(DEFAULT_CAPTURE_HEIGHT)
+        } else {
+            captureWidth = DEFAULT_CAPTURE_WIDTH
+            captureHeight = DEFAULT_CAPTURE_HEIGHT
+        }
 
         handlerThread = HandlerThread("ScreenCapture").apply { start() }
         handler = Handler(handlerThread!!.looper)
@@ -57,7 +96,7 @@ class ScreenAnalyzer(
             captureWidth,
             captureHeight,
             android.graphics.PixelFormat.RGBA_8888,
-            2
+            IMAGE_READER_MAX_IMAGES
         )
 
         imageReader?.setOnImageAvailableListener({ reader ->
@@ -121,8 +160,8 @@ class ScreenAnalyzer(
 
         val colors = if (useCustomSampling) {
             val midPoint = captureWidth / 2
-            val leftColor = averageRegionWeighted(buffer, 0, midPoint - 1, rowStride, pixelStride)
-            val rightColor = averageRegionWeighted(buffer, midPoint, captureWidth - 1, rowStride, pixelStride)
+            val leftColor = averageRegionTopWeighted(buffer, 0, midPoint - 1, 0, captureHeight - 1, rowStride, pixelStride)
+            val rightColor = averageRegionTopWeighted(buffer, midPoint, captureWidth - 1, 0, captureHeight - 1, rowStride, pixelStride)
             ScreenColors(leftColor = leftColor, rightColor = rightColor)
         } else {
             val leftColor = getPixelColor(buffer, 0, 0, rowStride, pixelStride)
@@ -130,9 +169,14 @@ class ScreenAnalyzer(
             ScreenColors(leftColor = leftColor, rightColor = rightColor)
         }
 
-        if (colors != lastEmittedColors) {
-            lastEmittedColors = colors
-            onColorsAnalyzed(colors)
+        val boostedColors = ScreenColors(
+            leftColor = applySaturationBoost(colors.leftColor),
+            rightColor = applySaturationBoost(colors.rightColor)
+        )
+
+        if (boostedColors != lastEmittedColors) {
+            lastEmittedColors = boostedColors
+            onColorsAnalyzed(boostedColors)
         }
     }
 
@@ -144,41 +188,64 @@ class ScreenAnalyzer(
         return Color.rgb(r, g, b)
     }
 
-    private fun averageRegionWeighted(buffer: ByteBuffer, startX: Int, endX: Int, rowStride: Int, pixelStride: Int): Int {
+    private data class WeightedPixel(val r: Int, val g: Int, val b: Int, val weight: Double)
+
+    private fun averageRegionTopWeighted(
+        buffer: ByteBuffer,
+        startX: Int,
+        endX: Int,
+        startY: Int,
+        endY: Int,
+        rowStride: Int,
+        pixelStride: Int
+    ): Int {
+        val pixels = mutableListOf<WeightedPixel>()
+
+        for (y in startY..endY) {
+            for (x in startX..endX) {
+                val offset = y * rowStride + x * pixelStride
+                val r = buffer.get(offset).toInt() and 0xFF
+                val g = buffer.get(offset + 1).toInt() and 0xFF
+                val b = buffer.get(offset + 2).toInt() and 0xFF
+
+                val weight = calculatePixelWeight(r, g, b)
+                pixels.add(WeightedPixel(r, g, b, weight))
+            }
+        }
+
+        if (pixels.isEmpty()) return Color.BLACK
+
+        pixels.sortByDescending { it.weight }
+        val topCount = (pixels.size * topPixelPercentage).toInt().coerceAtLeast(1)
+        val topPixels = pixels.take(topCount)
+
         var rAcc = 0.0
         var gAcc = 0.0
         var bAcc = 0.0
         var totalWeight = 0.0
 
-        for (x in startX..endX) {
-            val offset = x * pixelStride
-            val r = buffer.get(offset).toInt() and 0xFF
-            val g = buffer.get(offset + 1).toInt() and 0xFF
-            val b = buffer.get(offset + 2).toInt() and 0xFF
-
-            val weight = calculatePixelWeight(r, g, b)
-
-            rAcc += r * weight
-            gAcc += g * weight
-            bAcc += b * weight
-            totalWeight += weight
+        for (pixel in topPixels) {
+            rAcc += pixel.r * pixel.weight
+            gAcc += pixel.g * pixel.weight
+            bAcc += pixel.b * pixel.weight
+            totalWeight += pixel.weight
         }
 
         if (totalWeight == 0.0) return Color.BLACK
 
-        val rAvg = (rAcc / totalWeight).toInt().coerceIn(0, 255)
-        val gAvg = (gAcc / totalWeight).toInt().coerceIn(0, 255)
-        val bAvg = (bAcc / totalWeight).toInt().coerceIn(0, 255)
+        val rAvg = (rAcc / totalWeight).toInt().coerceIn(0, RGB_MAX)
+        val gAvg = (gAcc / totalWeight).toInt().coerceIn(0, RGB_MAX)
+        val bAvg = (bAcc / totalWeight).toInt().coerceIn(0, RGB_MAX)
 
         return Color.rgb(rAvg, gAvg, bAvg)
     }
 
     private fun calculatePixelWeight(r: Int, g: Int, b: Int): Double {
-        val rNorm = r / 255.0
-        val gNorm = g / 255.0
-        val bNorm = b / 255.0
+        val rNorm = r / RGB_NORMALIZE
+        val gNorm = g / RGB_NORMALIZE
+        val bNorm = b / RGB_NORMALIZE
 
-        val brightness = 0.299 * rNorm + 0.587 * gNorm + 0.114 * bNorm
+        val brightness = BRIGHTNESS_RED_COEFF * rNorm + BRIGHTNESS_GREEN_COEFF * gNorm + BRIGHTNESS_BLUE_COEFF * bNorm
 
         val max = maxOf(rNorm, gNorm, bNorm)
         val min = minOf(rNorm, gNorm, bNorm)
@@ -187,12 +254,57 @@ class ScreenAnalyzer(
         val avg = (rNorm + gNorm + bNorm) / 3.0
         val colorfulness = sqrt((rNorm - avg).pow(2) + (gNorm - avg).pow(2) + (bNorm - avg).pow(2))
 
-        val brightnessWeight = 1.0 - (1.0 / (1.0 + (brightness * 10.0).pow(2)))
-        val saturationWeight = saturation.pow(0.5) * 2.5
-        val colorfulnessWeight = colorfulness * 3.0
+        val brightnessWeight = 1.0 - (1.0 / (1.0 + (brightness * BRIGHTNESS_FACTOR).pow(BRIGHTNESS_POWER)))
+        val saturationWeight = saturation.pow(SATURATION_POWER) * SATURATION_MULTIPLIER
+        val colorfulnessWeight = colorfulness * COLORFULNESS_MULTIPLIER
 
-        val weight = (brightnessWeight * 0.2 + saturationWeight * 0.5 + colorfulnessWeight * 0.3).coerceAtLeast(0.01)
+        val weight = (brightnessWeight * BRIGHTNESS_WEIGHT_RATIO + saturationWeight * SATURATION_WEIGHT_RATIO + colorfulnessWeight * COLORFULNESS_WEIGHT_RATIO).coerceAtLeast(MIN_WEIGHT)
 
         return weight
+    }
+
+    private fun applySaturationBoost(color: Int): Int {
+        val mappedBoost = SATURATION_BOOST_BASE + (saturationBoost * SATURATION_BOOST_MULTIPLIER)
+
+        if (mappedBoost == SATURATION_BOOST_BASE) return color
+
+        val r = Color.red(color) / RGB_NORMALIZE.toFloat()
+        val g = Color.green(color) / RGB_NORMALIZE.toFloat()
+        val b = Color.blue(color) / RGB_NORMALIZE.toFloat()
+
+        val max = maxOf(r, g, b)
+        val min = minOf(r, g, b)
+        val delta = max - min
+
+        val v = max
+        val s = if (max == 0f) 0f else delta / max
+
+        val sBoosted = (s * mappedBoost).coerceIn(0f, 1f)
+
+        val h = when {
+            delta == 0f -> 0f
+            max == r -> HUE_STEP * (((g - b) / delta) % HUE_CYCLE)
+            max == g -> HUE_STEP * (((b - r) / delta) + 2f)
+            else -> HUE_STEP * (((r - g) / delta) + 4f)
+        }
+
+        val c = v * sBoosted
+        val x = c * (1f - kotlin.math.abs((h / HUE_STEP) % 2f - 1f))
+        val m = v - c
+
+        val (rPrime, gPrime, bPrime) = when {
+            h < HUE_STEP -> Triple(c, x, 0f)
+            h < HUE_STEP * 2 -> Triple(x, c, 0f)
+            h < HUE_STEP * 3 -> Triple(0f, c, x)
+            h < HUE_STEP * 4 -> Triple(0f, x, c)
+            h < HUE_STEP * 5 -> Triple(x, 0f, c)
+            else -> Triple(c, 0f, x)
+        }
+
+        val rFinal = ((rPrime + m) * RGB_NORMALIZE).toInt().coerceIn(0, RGB_MAX)
+        val gFinal = ((gPrime + m) * RGB_NORMALIZE).toInt().coerceIn(0, RGB_MAX)
+        val bFinal = ((bPrime + m) * RGB_NORMALIZE).toInt().coerceIn(0, RGB_MAX)
+
+        return Color.rgb(rFinal, gFinal, bFinal)
     }
 }
