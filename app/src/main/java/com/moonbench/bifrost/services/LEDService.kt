@@ -18,7 +18,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
-import android.util.Log
 import android.view.WindowManager
 import com.moonbench.bifrost.MainActivity
 import com.moonbench.bifrost.R
@@ -38,7 +37,6 @@ import com.moonbench.bifrost.animations.StaticAnimation
 import com.moonbench.bifrost.animations.StrobeAnimation
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
-import com.moonbench.bifrost.tools.ScreenRegionType
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LEDService : Service() {
@@ -67,7 +65,7 @@ class LEDService : Service() {
     private var currentProfile: PerformanceProfile = PerformanceProfile.MEDIUM
     private var currentAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
     private var currentSaturationBoost: Float = 0f
-
+    private var currentUseCustomSampling: Boolean = false
 
     private val activityCheckRunnable = object : Runnable {
         override fun run() {
@@ -132,6 +130,7 @@ class LEDService : Service() {
         val smoothness = intent.getFloatExtra("smoothness", 0.5f).coerceIn(0f, 1f)
         val sensitivity = intent.getFloatExtra("sensitivity", 0.5f).coerceIn(0f, 1f)
         currentSaturationBoost = intent.getFloatExtra("saturationBoost", 0f).coerceIn(0f, 1f)
+        currentUseCustomSampling = intent.getBooleanExtra("useCustomSampling", false)
 
         currentAnimationType = animationType
         currentProfile = profile
@@ -209,6 +208,20 @@ class LEDService : Service() {
             }
         }
 
+        if (intent.hasExtra("useCustomSampling")) {
+            val newUseCustomSampling = intent.getBooleanExtra("useCustomSampling", currentUseCustomSampling)
+            if (newUseCustomSampling != currentUseCustomSampling) {
+                currentUseCustomSampling = newUseCustomSampling
+                val type = currentAnimationType
+                val brightness = currentBrightness
+                val speed = currentSpeed
+                val smoothness = currentSmoothness
+                val sensitivity = currentSensitivity
+                val profile = currentProfile
+                stopCurrentAnimation()
+                startAnimation(type, currentColor, brightness, speed, smoothness, sensitivity, profile)
+            }
+        }
     }
 
     private fun processAnimationChange(
@@ -412,8 +425,8 @@ class LEDService : Service() {
                     ledController,
                     projection,
                     displayMetrics,
-                    ScreenRegionType.TWO_SIDES,
-                    profile
+                    profile,
+                    currentUseCustomSampling
                 )
             }
             LedAnimationType.AUDIO_REACTIVE -> {
@@ -438,8 +451,8 @@ class LEDService : Service() {
                     ledController,
                     projection,
                     displayMetrics,
-                    ScreenRegionType.TWO_SIDES,
-                    profile
+                    profile,
+                    currentUseCustomSampling
                 )
             }
             LedAnimationType.STATIC -> StaticAnimation(ledController, color)

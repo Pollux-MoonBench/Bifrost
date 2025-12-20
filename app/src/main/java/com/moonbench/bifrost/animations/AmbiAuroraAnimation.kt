@@ -10,15 +10,14 @@ import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.tools.ScreenAnalyzer
 import com.moonbench.bifrost.tools.ScreenColors
-import com.moonbench.bifrost.tools.ScreenRegionType
 import kotlin.math.roundToInt
 
 class AmbiAuroraAnimation(
     ledController: LedController,
     private val mediaProjection: MediaProjection,
     private val displayMetrics: DisplayMetrics,
-    private val regionType: ScreenRegionType,
-    private val profile: PerformanceProfile
+    private val profile: PerformanceProfile,
+    private val useCustomSampling: Boolean
 ) : LedAnimation(ledController) {
 
     override val type: LedAnimationType = LedAnimationType.AMBIAURORA
@@ -29,10 +28,6 @@ class AmbiAuroraAnimation(
 
     private var currentLeftColor = Color.BLACK
     private var currentRightColor = Color.BLACK
-    private var currentTopLeftColor = Color.BLACK
-    private var currentTopRightColor = Color.BLACK
-    private var currentBottomLeftColor = Color.BLACK
-    private var currentBottomRightColor = Color.BLACK
 
     private var targetBrightness: Int = 255
     private var currentBrightness: Int = 0
@@ -64,10 +59,7 @@ class AmbiAuroraAnimation(
             if (hasColorUpdate) {
                 hasColorUpdate = false
                 pendingColors?.let { colors ->
-                    when (regionType) {
-                        ScreenRegionType.TWO_SIDES -> updateTwoSidesColors(colors)
-                        ScreenRegionType.FOUR_CORNERS -> updateFourCornersColors(colors)
-                    }
+                    updateColors(colors)
                     needsLedUpdate = true
                 }
             }
@@ -129,8 +121,8 @@ class AmbiAuroraAnimation(
         screenAnalyzer = ScreenAnalyzer(
             mediaProjection,
             displayMetrics,
-            regionType,
-            profile
+            profile,
+            useCustomSampling
         ) { colors ->
             pendingColors = colors
             hasColorUpdate = true
@@ -195,7 +187,7 @@ class AmbiAuroraAnimation(
         return boosted.coerceIn(0f, 1f)
     }
 
-    private fun updateTwoSidesColors(colors: ScreenColors) {
+    private fun updateColors(colors: ScreenColors) {
         val leftTarget = if (isColorBlack(colors.leftColor)) {
             Color.BLACK
         } else {
@@ -221,65 +213,9 @@ class AmbiAuroraAnimation(
         }
     }
 
-    private fun updateFourCornersColors(colors: ScreenColors) {
-        val topLeftTarget = if (isColorBlack(colors.topLeftColor)) {
-            Color.BLACK
-        } else {
-            boostSaturation(colors.topLeftColor, saturationBoost)
-        }
-
-        val topRightTarget = if (isColorBlack(colors.topRightColor)) {
-            Color.BLACK
-        } else {
-            boostSaturation(colors.topRightColor, saturationBoost)
-        }
-
-        val bottomLeftTarget = if (isColorBlack(colors.bottomLeftColor)) {
-            Color.BLACK
-        } else {
-            boostSaturation(colors.bottomLeftColor, saturationBoost)
-        }
-
-        val bottomRightTarget = if (isColorBlack(colors.bottomRightColor)) {
-            Color.BLACK
-        } else {
-            boostSaturation(colors.bottomRightColor, saturationBoost)
-        }
-
-        currentTopLeftColor = if (isColorBlack(topLeftTarget)) {
-            Color.BLACK
-        } else {
-            lerpColor(currentTopLeftColor, topLeftTarget, colorLerpFactor())
-        }
-
-        currentTopRightColor = if (isColorBlack(topRightTarget)) {
-            Color.BLACK
-        } else {
-            lerpColor(currentTopRightColor, topRightTarget, colorLerpFactor())
-        }
-
-        currentBottomLeftColor = if (isColorBlack(bottomLeftTarget)) {
-            Color.BLACK
-        } else {
-            lerpColor(currentBottomLeftColor, bottomLeftTarget, colorLerpFactor())
-        }
-
-        currentBottomRightColor = if (isColorBlack(bottomRightTarget)) {
-            Color.BLACK
-        } else {
-            lerpColor(currentBottomRightColor, bottomRightTarget, colorLerpFactor())
-        }
-    }
-
     private fun applyLeds() {
         val scale = currentBrightness / 255f
-        when (regionType) {
-            ScreenRegionType.TWO_SIDES -> applyTwoSides(scale)
-            ScreenRegionType.FOUR_CORNERS -> applyFourCorners(scale)
-        }
-    }
 
-    private fun applyTwoSides(scale: Float) {
         val leftRed = (Color.red(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
         val leftGreen = (Color.green(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
         val leftBlue = (Color.blue(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
@@ -305,64 +241,6 @@ class AmbiAuroraAnimation(
             leftTop = false,
             leftBottom = false,
             rightTop = true,
-            rightBottom = true
-        )
-    }
-
-    private fun applyFourCorners(scale: Float) {
-        val tlR = (Color.red(currentTopLeftColor) * scale).roundToInt().coerceIn(0, 255)
-        val tlG = (Color.green(currentTopLeftColor) * scale).roundToInt().coerceIn(0, 255)
-        val tlB = (Color.blue(currentTopLeftColor) * scale).roundToInt().coerceIn(0, 255)
-
-        val trR = (Color.red(currentTopRightColor) * scale).roundToInt().coerceIn(0, 255)
-        val trG = (Color.green(currentTopRightColor) * scale).roundToInt().coerceIn(0, 255)
-        val trB = (Color.blue(currentTopRightColor) * scale).roundToInt().coerceIn(0, 255)
-
-        val blR = (Color.red(currentBottomLeftColor) * scale).roundToInt().coerceIn(0, 255)
-        val blG = (Color.green(currentBottomLeftColor) * scale).roundToInt().coerceIn(0, 255)
-        val blB = (Color.blue(currentBottomLeftColor) * scale).roundToInt().coerceIn(0, 255)
-
-        val brR = (Color.red(currentBottomRightColor) * scale).roundToInt().coerceIn(0, 255)
-        val brG = (Color.green(currentBottomRightColor) * scale).roundToInt().coerceIn(0, 255)
-        val brB = (Color.blue(currentBottomRightColor) * scale).roundToInt().coerceIn(0, 255)
-
-        ledController.setLedColor(
-            tlR,
-            tlG,
-            tlB,
-            leftTop = true,
-            leftBottom = false,
-            rightTop = false,
-            rightBottom = false
-        )
-
-        ledController.setLedColor(
-            trR,
-            trG,
-            trB,
-            leftTop = false,
-            leftBottom = false,
-            rightTop = true,
-            rightBottom = false
-        )
-
-        ledController.setLedColor(
-            blR,
-            blG,
-            blB,
-            leftTop = false,
-            leftBottom = true,
-            rightTop = false,
-            rightBottom = false
-        )
-
-        ledController.setLedColor(
-            brR,
-            brG,
-            brB,
-            leftTop = false,
-            leftBottom = false,
-            rightTop = false,
             rightBottom = true
         )
     }

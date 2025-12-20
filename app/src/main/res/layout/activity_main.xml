@@ -385,6 +385,7 @@
                             android:id="@+id/sensitivitySeekBar"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginBottom="16dp"
                             style="@style/BifrostSeekBar" />
 
                         <TextView
@@ -393,7 +394,6 @@
                             android:textColor="@color/bifrost_text_secondary"
                             android:textSize="10sp"
                             android:letterSpacing="0.1"
-                            android:layout_marginTop="16dp"
                             android:layout_marginBottom="8dp"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content" />
@@ -402,7 +402,47 @@
                             android:id="@+id/saturationBoostSeekBar"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginBottom="16dp"
                             style="@style/BifrostSeekBar" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:id="@+id/customSamplingLabel"
+                                    android:text="CUSTOM SAMPLING"
+                                    android:textColor="@color/bifrost_text_secondary"
+                                    android:textSize="10sp"
+                                    android:letterSpacing="0.1"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content" />
+
+                                <TextView
+                                    android:text="Prioritize vivid colors"
+                                    android:textColor="@color/bifrost_text_secondary"
+                                    android:textSize="8sp"
+                                    android:layout_marginTop="2dp"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content" />
+                            </LinearLayout>
+
+                            <com.google.android.material.switchmaterial.SwitchMaterial
+                                android:id="@+id/customSamplingSwitch"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                app:thumbTint="@color/bifrost_accent_light"
+                                app:trackTint="@color/bifrost_surface" />
+                        </LinearLayout>
+
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
