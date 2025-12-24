@@ -15,6 +15,7 @@ class AmbilightAnimation(
     private val displayMetrics: DisplayMetrics,
     private val profile: PerformanceProfile,
     private val useCustomSampling: Boolean,
+    private val useSingleColor: Boolean,
     initialSaturationBoost: Float = 0.0f
 ) : LedAnimation(ledController) {
 
@@ -54,6 +55,7 @@ class AmbilightAnimation(
             displayMetrics,
             profile,
             useCustomSampling,
+            useSingleColor,
             saturationBoost
         ) { colors ->
             updateColors(colors)

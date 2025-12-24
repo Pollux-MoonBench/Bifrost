@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensitivitySeekBar: SeekBar
     private lateinit var saturationBoostSeekBar: SeekBar
     private lateinit var customSamplingSwitch: SwitchMaterial
+    private lateinit var singleColorSwitch: SwitchMaterial
     private lateinit var modeCard: MaterialCardView
     private lateinit var colorCard: MaterialCardView
     private lateinit var animationCard: MaterialCardView
@@ -73,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedSensitivity: Float = 0.5f
     private var selectedSaturationBoost: Float = 0.0f
     private var selectedUseCustomSampling: Boolean = false
+    private var selectedUseSingleColor: Boolean = false
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
     private var rainbowDrawable: AnimatedRainbowDrawable? = null
@@ -178,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         sensitivitySeekBar = findViewById(R.id.sensitivitySeekBar)
         saturationBoostSeekBar = findViewById(R.id.saturationBoostSeekBar)
         customSamplingSwitch = findViewById(R.id.customSamplingSwitch)
+        singleColorSwitch = findViewById(R.id.singleColorSwitch)
         modeCard = findViewById(R.id.modeCard)
         colorCard = findViewById(R.id.colorCard)
         animationCard = findViewById(R.id.animationCard)
@@ -204,6 +207,7 @@ class MainActivity : AppCompatActivity() {
         setupSensitivitySeekBar()
         setupSaturationBoostSeekBar()
         setupCustomSamplingSwitch()
+        setupSingleColorSwitch()
         setupPresetFeature()
         updateParameterVisibility()
         enableRainbowBackground(LEDService.isRunning)
@@ -263,7 +267,6 @@ class MainActivity : AppCompatActivity() {
         rainbowDrawable?.stop()
         rainbowDrawable = null
     }
-
     private fun setupAnimationSpinner() {
         val types = LedAnimationType.values().toList()
         val labels = types.map { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }
@@ -476,6 +479,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupSingleColorSwitch() {
+        singleColorSwitch.isChecked = selectedUseSingleColor
+        singleColorSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (serviceController.isServiceTransitioning || isUpdatingFromPreset) return@setOnCheckedChangeListener
+            selectedUseSingleColor = isChecked
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
     private fun setupPresetFeature() {
         val initialConfigPreset = LedPreset(
             name = "Initial",
@@ -487,7 +501,8 @@ class MainActivity : AppCompatActivity() {
             smoothness = selectedSmoothness,
             sensitivity = selectedSensitivity,
             saturationBoost = selectedSaturationBoost,
-            useCustomSampling = selectedUseCustomSampling
+            useCustomSampling = selectedUseCustomSampling,
+            useSingleColor = selectedUseSingleColor
         )
 
         presetController = PresetController(
@@ -508,7 +523,8 @@ class MainActivity : AppCompatActivity() {
                     smoothness = selectedSmoothness,
                     sensitivity = selectedSensitivity,
                     saturationBoost = selectedSaturationBoost,
-                    useCustomSampling = selectedUseCustomSampling
+                    useCustomSampling = selectedUseCustomSampling,
+                    useSingleColor = selectedUseSingleColor
                 )
             },
             applyPresetToUi = { preset ->
@@ -521,6 +537,7 @@ class MainActivity : AppCompatActivity() {
                 selectedSensitivity = preset.sensitivity
                 selectedSaturationBoost = preset.saturationBoost
                 selectedUseCustomSampling = preset.useCustomSampling
+                selectedUseSingleColor = preset.useSingleColor
 
                 val types = LedAnimationType.values().toList()
                 animationSpinner.setSelection(types.indexOf(selectedAnimationType).coerceAtLeast(0))
@@ -536,6 +553,7 @@ class MainActivity : AppCompatActivity() {
                 sensitivitySeekBar.progress = (selectedSensitivity * 100).toInt()
                 saturationBoostSeekBar.progress = (selectedSaturationBoost * 100).toInt()
                 customSamplingSwitch.isChecked = selectedUseCustomSampling
+                singleColorSwitch.isChecked = selectedUseSingleColor
 
                 updateParameterVisibility()
             },
@@ -573,10 +591,12 @@ class MainActivity : AppCompatActivity() {
                 selectedAnimationType == LedAnimationType.AMBIAURORA
         val needsCustomSampling = selectedAnimationType == LedAnimationType.AMBILIGHT ||
                 selectedAnimationType == LedAnimationType.AMBIAURORA
+        val needsSingleColor = selectedAnimationType == LedAnimationType.AMBILIGHT ||
+                selectedAnimationType == LedAnimationType.AMBIAURORA
 
         colorCard.visibility = if (needsColor) View.VISIBLE else View.GONE
         performanceCard.visibility = if (needsProfile) View.VISIBLE else View.GONE
-        animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling) View.VISIBLE else View.GONE
+        animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling || needsSingleColor) View.VISIBLE else View.GONE
 
         if (animationCard.visibility == View.VISIBLE) {
             val speedLabel = findViewById<View>(R.id.speedLabel)
@@ -584,6 +604,7 @@ class MainActivity : AppCompatActivity() {
             val sensitivityLabel = findViewById<View>(R.id.sensitivityLabel)
             val saturationBoostLabel = findViewById<View>(R.id.saturationBoostLabel)
             val customSamplingLabel = findViewById<View>(R.id.customSamplingLabel)
+            val singleColorLabel = findViewById<View>(R.id.singleColorLabel)
 
             speedLabel?.visibility = if (needsSpeed || needsSmoothness) View.VISIBLE else View.GONE
             speedSeekBar.visibility = if (needsSpeed || needsSmoothness) View.VISIBLE else View.GONE
@@ -599,6 +620,9 @@ class MainActivity : AppCompatActivity() {
 
             customSamplingLabel?.visibility = if (needsCustomSampling) View.VISIBLE else View.GONE
             customSamplingSwitch.visibility = if (needsCustomSampling) View.VISIBLE else View.GONE
+
+            singleColorLabel?.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
+            singleColorSwitch.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
         }
     }
 
@@ -711,6 +735,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("sensitivity", selectedSensitivity)
             putExtra("saturationBoost", selectedSaturationBoost)
             putExtra("useCustomSampling", selectedUseCustomSampling)
+            putExtra("useSingleColor", selectedUseSingleColor)
             if (selectedAnimationType.needsMediaProjection) {
                 putExtra("resultCode", mediaProjectionResultCode)
                 putExtra("data", mediaProjectionData)
@@ -729,6 +754,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("sensitivity", selectedSensitivity)
             putExtra("saturationBoost", selectedSaturationBoost)
             putExtra("useCustomSampling", selectedUseCustomSampling)
+            putExtra("useSingleColor", selectedUseSingleColor)
         }
         startService(intent)
     }

@@ -126,6 +126,7 @@ class PresetController(
 
             val accepted = obj.optBoolean("ragnarokAccepted", false)
             val useCustomSampling = obj.optBoolean("useCustomSampling", false)
+            val useSingleColor = obj.optBoolean("useSingleColor", false)
 
             list.add(
                 LedPreset(
@@ -139,6 +140,7 @@ class PresetController(
                     sensitivity = obj.optDouble("sensitivity", 0.5).toFloat(),
                     saturationBoost = obj.optDouble("saturationBoost", 0.0).toFloat(),
                     useCustomSampling = useCustomSampling,
+                    useSingleColor = useSingleColor,
                     ragnarokAccepted = accepted
                 )
             )
@@ -162,6 +164,7 @@ class PresetController(
             obj.put("sensitivity", preset.sensitivity.toDouble())
             obj.put("saturationBoost", preset.saturationBoost.toDouble())
             obj.put("useCustomSampling", preset.useCustomSampling)
+            obj.put("useSingleColor", preset.useSingleColor)
             obj.put("ragnarokAccepted", preset.ragnarokAccepted)
             array.put(obj)
         }

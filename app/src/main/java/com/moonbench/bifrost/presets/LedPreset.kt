@@ -14,5 +14,6 @@ data class LedPreset(
     val sensitivity: Float = 0.5f,
     val saturationBoost: Float = 0.0f,
     val useCustomSampling: Boolean = false,
+    val useSingleColor: Boolean = false,
     val ragnarokAccepted: Boolean = false
 )

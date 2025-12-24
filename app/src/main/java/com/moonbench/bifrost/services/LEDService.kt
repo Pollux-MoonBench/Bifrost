@@ -66,6 +66,7 @@ class LEDService : Service() {
     private var currentAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
     private var currentSaturationBoost: Float = 0f
     private var currentUseCustomSampling: Boolean = false
+    private var currentUseSingleColor: Boolean = false
 
     private val activityCheckRunnable = object : Runnable {
         override fun run() {
@@ -131,6 +132,7 @@ class LEDService : Service() {
         val sensitivity = intent.getFloatExtra("sensitivity", 0.5f).coerceIn(0f, 1f)
         currentSaturationBoost = intent.getFloatExtra("saturationBoost", 0f).coerceIn(0f, 1f)
         currentUseCustomSampling = intent.getBooleanExtra("useCustomSampling", false)
+        currentUseSingleColor = intent.getBooleanExtra("useSingleColor", false)
 
         currentAnimationType = animationType
         currentProfile = profile
@@ -212,6 +214,21 @@ class LEDService : Service() {
             val newUseCustomSampling = intent.getBooleanExtra("useCustomSampling", currentUseCustomSampling)
             if (newUseCustomSampling != currentUseCustomSampling) {
                 currentUseCustomSampling = newUseCustomSampling
+                val type = currentAnimationType
+                val brightness = currentBrightness
+                val speed = currentSpeed
+                val smoothness = currentSmoothness
+                val sensitivity = currentSensitivity
+                val profile = currentProfile
+                stopCurrentAnimation()
+                startAnimation(type, currentColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+            }
+        }
+
+        if (intent.hasExtra("useSingleColor")) {
+            val newUseSingleColor = intent.getBooleanExtra("useSingleColor", currentUseSingleColor)
+            if (newUseSingleColor != currentUseSingleColor) {
+                currentUseSingleColor = newUseSingleColor
                 val type = currentAnimationType
                 val brightness = currentBrightness
                 val speed = currentSpeed
@@ -433,6 +450,7 @@ class LEDService : Service() {
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,
+                    currentUseSingleColor,
                     saturationBoost
                 )
             }
@@ -460,6 +478,7 @@ class LEDService : Service() {
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,
+                    currentUseSingleColor,
                     saturationBoost
                 )
             }

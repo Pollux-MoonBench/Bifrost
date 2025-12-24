@@ -14,6 +14,7 @@ import kotlin.math.sqrt
 
 private const val DEFAULT_CAPTURE_WIDTH = 2
 private const val DEFAULT_CAPTURE_HEIGHT = 1
+private const val SINGLE_COLOR_CAPTURE_SIZE = 1
 private const val CUSTOM_SAMPLING_WIDTH = 32
 private const val IMAGE_READER_MAX_IMAGES = 2
 
@@ -53,6 +54,7 @@ class ScreenAnalyzer(
     private val displayMetrics: DisplayMetrics,
     var performanceProfile: PerformanceProfile = PerformanceProfile.HIGH,
     var useCustomSampling: Boolean = false,
+    var useSingleColor: Boolean = false,
     var saturationBoost: Float = 0.0f,
     var topPixelPercentage: Float = 0.3f,
     private val onColorsAnalyzed: (ScreenColors) -> Unit
@@ -73,7 +75,10 @@ class ScreenAnalyzer(
         if (isRunning) return
         isRunning = true
 
-        if (useCustomSampling) {
+        if (useSingleColor) {
+            captureWidth = SINGLE_COLOR_CAPTURE_SIZE
+            captureHeight = SINGLE_COLOR_CAPTURE_SIZE
+        } else if (useCustomSampling) {
             captureWidth = CUSTOM_SAMPLING_WIDTH
             val aspectRatio = displayMetrics.heightPixels.toFloat() / displayMetrics.widthPixels.toFloat()
             captureHeight = (captureWidth * aspectRatio).toInt().coerceAtLeast(DEFAULT_CAPTURE_HEIGHT)
@@ -158,7 +163,14 @@ class ScreenAnalyzer(
         val pixelStride = plane.pixelStride
         val rowStride = plane.rowStride
 
-        val colors = if (useCustomSampling) {
+        val colors = if (useSingleColor) {
+            val singleColor = if (useCustomSampling) {
+                averageRegionTopWeighted(buffer, 0, captureWidth - 1, 0, captureHeight - 1, rowStride, pixelStride)
+            } else {
+                getPixelColor(buffer, 0, 0, rowStride, pixelStride)
+            }
+            ScreenColors(leftColor = singleColor, rightColor = singleColor)
+        } else if (useCustomSampling) {
             val midPoint = captureWidth / 2
             val leftColor = averageRegionTopWeighted(buffer, 0, midPoint - 1, 0, captureHeight - 1, rowStride, pixelStride)
             val rightColor = averageRegionTopWeighted(buffer, midPoint, captureWidth - 1, 0, captureHeight - 1, rowStride, pixelStride)
