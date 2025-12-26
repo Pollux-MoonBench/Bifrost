@@ -14,6 +14,7 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.SeekBar
 import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -594,7 +595,23 @@ class MainActivity : AppCompatActivity() {
         val needsSingleColor = selectedAnimationType == LedAnimationType.AMBILIGHT ||
                 selectedAnimationType == LedAnimationType.AMBIAURORA
 
-        colorCard.visibility = if (needsColor) View.VISIBLE else View.GONE
+        val supportsBrightness = selectedAnimationType != LedAnimationType.AMBILIGHT &&
+                selectedAnimationType != LedAnimationType.AMBIAURORA &&
+                selectedAnimationType != LedAnimationType.AUDIO_REACTIVE
+
+        colorCard.visibility = if (needsColor || supportsBrightness) View.VISIBLE else View.GONE
+
+        if (colorCard.visibility == View.VISIBLE) {
+            colorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
+
+            val colorCardTitle = findViewById<TextView>(R.id.colorCardTitle)
+            if (needsColor) {
+                colorCardTitle?.text = "COLOR & INTENSITY"
+            } else {
+                colorCardTitle?.text = "INTENSITY"
+            }
+        }
+
         performanceCard.visibility = if (needsProfile) View.VISIBLE else View.GONE
         animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling || needsSingleColor) View.VISIBLE else View.GONE
 

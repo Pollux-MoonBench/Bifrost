@@ -269,6 +269,7 @@
                         android:background="@drawable/card_glow_bg">
 
                         <TextView
+                            android:id="@+id/colorCardTitle"
                             android:text="COLOR &amp; INTENSITY"
                             android:textColor="@color/bifrost_text"
                             android:textSize="12sp"
