@@ -42,7 +42,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="LED BRIDGE SYSTEM FOR AYN THOR"
+                android:text="LED BRIDGE SYSTEM FOR ANDROID HANDHELDS"
                 android:textColor="@color/bifrost_text_secondary"
                 android:textSize="11sp"
                 android:letterSpacing="0.15" />
