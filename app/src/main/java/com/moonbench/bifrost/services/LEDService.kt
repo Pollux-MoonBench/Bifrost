@@ -59,6 +59,7 @@ class LEDService : Service() {
     private val isStopping = AtomicBoolean(false)
 
     private var currentColor: Int = Color.WHITE
+    private var currentRightColor: Int = Color.WHITE
     private var currentBrightness: Int = 255
     private var currentSpeed: Float = 0.5f
     private var currentSmoothness: Float = 0.5f
@@ -127,6 +128,7 @@ class LEDService : Service() {
         } ?: PerformanceProfile.HIGH
 
         val color = intent.getIntExtra("animationColor", Color.WHITE)
+        val rightColor = intent.getIntExtra("animationRightColor", color)
         val brightness = intent.getIntExtra("brightness", 255).coerceIn(0, 255)
         val speed = intent.getFloatExtra("speed", 0.5f).coerceIn(0f, 1f)
         val smoothness = intent.getFloatExtra("smoothness", 0.5f).coerceIn(0f, 1f)
@@ -138,6 +140,7 @@ class LEDService : Service() {
         currentAnimationType = animationType
         currentProfile = profile
         currentColor = color
+        currentRightColor = rightColor
         currentBrightness = brightness
         currentSpeed = speed
         currentSmoothness = smoothness
@@ -148,10 +151,10 @@ class LEDService : Service() {
 
         if (isTransitioning.getAndSet(true)) {
             handler.postDelayed({
-                processAnimationChange(animationType, color, brightness, speed, smoothness, sensitivity, profile, resultCode, data)
+                processAnimationChange(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, resultCode, data)
             }, 200)
         } else {
-            processAnimationChange(animationType, color, brightness, speed, smoothness, sensitivity, profile, resultCode, data)
+            processAnimationChange(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, resultCode, data)
         }
 
         return START_NOT_STICKY
@@ -161,10 +164,12 @@ class LEDService : Service() {
         if (!isRunning) return
         val animation = currentAnimation ?: return
 
-        if (intent.hasExtra("animationColor")) {
+        if (intent.hasExtra("animationColor") || intent.hasExtra("animationRightColor")) {
             val newColor = intent.getIntExtra("animationColor", currentColor)
-            if (newColor != currentColor) {
+            val newRightColor = intent.getIntExtra("animationRightColor", currentRightColor)
+            if (newColor != currentColor || newRightColor != currentRightColor) {
                 currentColor = newColor
+                currentRightColor = newRightColor
                 if (currentAnimationType.needsColorSelection) {
                     val type = currentAnimationType
                     val brightness = currentBrightness
@@ -173,7 +178,7 @@ class LEDService : Service() {
                     val sensitivity = currentSensitivity
                     val profile = currentProfile
                     stopCurrentAnimation()
-                    startAnimation(type, currentColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                    startAnimation(type, currentColor, currentRightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                     return
                 }
             }
@@ -222,7 +227,7 @@ class LEDService : Service() {
                 val sensitivity = currentSensitivity
                 val profile = currentProfile
                 stopCurrentAnimation()
-                startAnimation(type, currentColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                startAnimation(type, currentColor, currentRightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
             }
         }
 
@@ -237,7 +242,7 @@ class LEDService : Service() {
                 val sensitivity = currentSensitivity
                 val profile = currentProfile
                 stopCurrentAnimation()
-                startAnimation(type, currentColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                startAnimation(type, currentColor, currentRightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
             }
         }
     }
@@ -245,6 +250,7 @@ class LEDService : Service() {
     private fun processAnimationChange(
         animationType: LedAnimationType,
         color: Int,
+        rightColor: Int,
         brightness: Int,
         speed: Float,
         smoothness: Float,
@@ -266,7 +272,7 @@ class LEDService : Service() {
                             try {
                                 if (isRunning && !isStopping.get()) {
                                     mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
-                                    startAnimation(animationType, color, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                                    startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -287,7 +293,7 @@ class LEDService : Service() {
         } else {
             handler.postDelayed({
                 if (isRunning && !isStopping.get()) {
-                    startAnimation(animationType, color, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                    startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                 }
                 isTransitioning.set(false)
             }, 100)
@@ -407,6 +413,7 @@ class LEDService : Service() {
     private fun startAnimation(
         type: LedAnimationType,
         color: Int,
+        rightColor: Int = color,
         brightness: Int,
         speed: Float,
         smoothness: Float,
@@ -415,7 +422,7 @@ class LEDService : Service() {
         saturationBoost: Float
     ) {
         try {
-            currentAnimation = createAnimation(type, color, profile, saturationBoost)
+            currentAnimation = createAnimation(type, color, rightColor, profile, saturationBoost)
             currentAnimation?.setTargetBrightness(brightness)
             currentAnimation?.setSpeed(speed)
             currentAnimation?.setLerpStrength(smoothness)
@@ -436,6 +443,7 @@ class LEDService : Service() {
     private fun createAnimation(
         type: LedAnimationType,
         color: Int,
+        rightColor: Int = color,
         profile: PerformanceProfile,
         saturationBoost: Float
     ): LedAnimation? {
@@ -465,6 +473,7 @@ class LEDService : Service() {
                     projection,
                     displayMetrics,
                     color,
+                    rightColor,
                     profile
                 )
             }
@@ -484,15 +493,15 @@ class LEDService : Service() {
                 )
             }
             LedAnimationType.BATTERY_INDICATOR -> BatteryIndicatorAnimation(ledController, this)
-            LedAnimationType.STATIC -> StaticAnimation(ledController, color)
-            LedAnimationType.BREATH -> BreathAnimation(ledController, color)
+            LedAnimationType.STATIC -> StaticAnimation(ledController, color, rightColor)
+            LedAnimationType.BREATH -> BreathAnimation(ledController, color, rightColor)
             LedAnimationType.RAINBOW -> RainbowAnimation(ledController)
-            LedAnimationType.PULSE -> PulseAnimation(ledController, color)
-            LedAnimationType.STROBE -> StrobeAnimation(ledController, color)
-            LedAnimationType.SPARKLE -> SparkleAnimation(ledController, color)
-            LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(ledController, color)
+            LedAnimationType.PULSE -> PulseAnimation(ledController, color, rightColor)
+            LedAnimationType.STROBE -> StrobeAnimation(ledController, color, rightColor)
+            LedAnimationType.SPARKLE -> SparkleAnimation(ledController, color, rightColor)
+            LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(ledController, color, rightColor)
             LedAnimationType.RAVE -> RaveAnimation(ledController)
-            LedAnimationType.CHASE -> ChaseAnimation(ledController, color)
+            LedAnimationType.CHASE -> ChaseAnimation(ledController, color, rightColor)
         }
     }
 }

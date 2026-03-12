@@ -43,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var modifyPresetButton: MaterialButton
     private lateinit var deletePresetButton: MaterialButton
     private lateinit var colorButton: MaterialButton
+    private lateinit var rightColorButton: MaterialButton
     private lateinit var brightnessSeekBar: SeekBar
     private lateinit var speedSeekBar: SeekBar
     private lateinit var smoothnessSeekBar: SeekBar
@@ -69,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
     private var selectedProfile: PerformanceProfile = PerformanceProfile.HIGH
     private var selectedColor: Int = Color.WHITE
+    private var selectedRightColor: Int = Color.WHITE
     private var selectedBrightness: Int = 255
     private var selectedSpeed: Float = 0.5f
     private var selectedSmoothness: Float = 0.5f
@@ -175,6 +177,7 @@ class MainActivity : AppCompatActivity() {
         modifyPresetButton = findViewById(R.id.modifyPresetButton)
         deletePresetButton = findViewById(R.id.deletePresetButton)
         colorButton = findViewById(R.id.colorButton)
+        rightColorButton = findViewById(R.id.rightColorButton)
         brightnessSeekBar = findViewById(R.id.brightnessSeekBar)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         smoothnessSeekBar = findViewById(R.id.smoothnessSeekBar)
@@ -372,8 +375,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupColorButton() {
-        colorButton.setOnClickListener { showColorPicker() }
+        colorButton.setOnClickListener { showColorPicker(isRight = false) }
         colorButton.setBackgroundColor(selectedColor)
+        rightColorButton.setOnClickListener { showColorPicker(isRight = true) }
+        rightColorButton.setBackgroundColor(selectedRightColor)
     }
 
     private fun setupBrightnessSeekBar() {
@@ -497,6 +502,7 @@ class MainActivity : AppCompatActivity() {
             animationType = selectedAnimationType,
             performanceProfile = selectedProfile,
             color = selectedColor,
+            rightColor = selectedRightColor,
             brightness = selectedBrightness,
             speed = selectedSpeed,
             smoothness = selectedSmoothness,
@@ -519,6 +525,7 @@ class MainActivity : AppCompatActivity() {
                     animationType = selectedAnimationType,
                     performanceProfile = selectedProfile,
                     color = selectedColor,
+                    rightColor = selectedRightColor,
                     brightness = selectedBrightness,
                     speed = selectedSpeed,
                     smoothness = selectedSmoothness,
@@ -532,6 +539,7 @@ class MainActivity : AppCompatActivity() {
                 selectedAnimationType = preset.animationType
                 selectedProfile = preset.performanceProfile
                 selectedColor = preset.color
+                selectedRightColor = preset.rightColor
                 selectedBrightness = preset.brightness
                 selectedSpeed = preset.speed
                 selectedSmoothness = preset.speed
@@ -547,6 +555,7 @@ class MainActivity : AppCompatActivity() {
                 profileSpinner.setSelection(profiles.indexOf(selectedProfile).coerceAtLeast(0))
 
                 colorButton.setBackgroundColor(selectedColor)
+                rightColorButton.setBackgroundColor(selectedRightColor)
                 brightnessSeekBar.progress = selectedBrightness
                 val progress = (selectedSpeed * 100).toInt()
                 speedSeekBar.progress = progress
@@ -601,6 +610,7 @@ class MainActivity : AppCompatActivity() {
 
         if (colorCard.visibility == View.VISIBLE) {
             colorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
+            rightColorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
 
             val colorCardTitle = findViewById<TextView>(R.id.colorCardTitle)
             if (needsColor) {
@@ -645,13 +655,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showColorPicker() {
+    private fun showColorPicker(isRight: Boolean = false) {
         colorPickerDialog.show(
             activity = this,
-            initialColor = selectedColor
+            initialColor = if (isRight) selectedRightColor else selectedColor
         ) { color ->
-            selectedColor = color
-            colorButton.setBackgroundColor(selectedColor)
+            if (isRight) {
+                selectedRightColor = color
+                rightColorButton.setBackgroundColor(selectedRightColor)
+            } else {
+                selectedColor = color
+                colorButton.setBackgroundColor(selectedColor)
+            }
             if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
                 sendLiveUpdateToLedService()
             }
@@ -748,6 +763,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("animationType", selectedAnimationType.name)
             putExtra("performanceProfile", selectedProfile.name)
             putExtra("animationColor", selectedColor)
+            putExtra("animationRightColor", selectedRightColor)
             putExtra("brightness", selectedBrightness)
             putExtra("speed", selectedSpeed)
             putExtra("smoothness", selectedSmoothness)
@@ -767,6 +783,7 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, LEDService::class.java).apply {
             action = LEDService.ACTION_UPDATE_PARAMS
             putExtra("animationColor", selectedColor)
+            putExtra("animationRightColor", selectedRightColor)
             putExtra("brightness", selectedBrightness)
             putExtra("speed", selectedSpeed)
             putExtra("smoothness", selectedSmoothness)

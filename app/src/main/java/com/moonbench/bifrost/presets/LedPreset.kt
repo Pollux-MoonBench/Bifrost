@@ -8,6 +8,7 @@ data class LedPreset(
     val animationType: LedAnimationType,
     val performanceProfile: PerformanceProfile,
     val color: Int,
+    val rightColor: Int = color,
     val brightness: Int,
     val speed: Float,
     val smoothness: Float,

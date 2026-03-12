@@ -9,7 +9,8 @@ import kotlin.random.Random
 
 class SparkleAnimation(
     ledController: LedController,
-    initialColor: Int
+    initialColor: Int,
+    initialRightColor: Int = initialColor
 ) : LedAnimation(ledController) {
 
     override val type: LedAnimationType = LedAnimationType.SPARKLE
@@ -19,12 +20,18 @@ class SparkleAnimation(
     private var running = false
     private var targetColor: Int = initialColor
     private var currentColor: Int = initialColor
+    private var targetRightColor: Int = initialRightColor
+    private var currentRightColor: Int = initialRightColor
     private var targetBrightness: Int = 255
     private var lerpStrength: Float = 0.5f
     private val ledBrightness = mutableListOf(0f, 0f, 0f, 0f)
 
     override fun setTargetColor(color: Int) {
         targetColor = color
+    }
+
+    override fun setTargetRightColor(color: Int) {
+        targetRightColor = color
     }
 
     override fun setTargetBrightness(brightness: Int) {
@@ -41,10 +48,15 @@ class SparkleAnimation(
 
             val colorFactor = 0.05f + 0.45f * lerpStrength
             currentColor = lerpColor(currentColor, targetColor, colorFactor)
+            currentRightColor = lerpColor(currentRightColor, targetRightColor, colorFactor)
 
-            val baseR = Color.red(currentColor)
-            val baseG = Color.green(currentColor)
-            val baseB = Color.blue(currentColor)
+            val leftR = Color.red(currentColor)
+            val leftG = Color.green(currentColor)
+            val leftB = Color.blue(currentColor)
+
+            val rightR = Color.red(currentRightColor)
+            val rightG = Color.green(currentRightColor)
+            val rightB = Color.blue(currentRightColor)
 
             val globalScale = targetBrightness / 255f
 
@@ -57,21 +69,21 @@ class SparkleAnimation(
                 }
             }
 
-            val r0 = (baseR * ledBrightness[0] * globalScale).roundToInt().coerceIn(0, 255)
-            val g0 = (baseG * ledBrightness[0] * globalScale).roundToInt().coerceIn(0, 255)
-            val b0 = (baseB * ledBrightness[0] * globalScale).roundToInt().coerceIn(0, 255)
+            val r0 = (leftR * ledBrightness[0] * globalScale).roundToInt().coerceIn(0, 255)
+            val g0 = (leftG * ledBrightness[0] * globalScale).roundToInt().coerceIn(0, 255)
+            val b0 = (leftB * ledBrightness[0] * globalScale).roundToInt().coerceIn(0, 255)
 
-            val r1 = (baseR * ledBrightness[1] * globalScale).roundToInt().coerceIn(0, 255)
-            val g1 = (baseG * ledBrightness[1] * globalScale).roundToInt().coerceIn(0, 255)
-            val b1 = (baseB * ledBrightness[1] * globalScale).roundToInt().coerceIn(0, 255)
+            val r1 = (leftR * ledBrightness[1] * globalScale).roundToInt().coerceIn(0, 255)
+            val g1 = (leftG * ledBrightness[1] * globalScale).roundToInt().coerceIn(0, 255)
+            val b1 = (leftB * ledBrightness[1] * globalScale).roundToInt().coerceIn(0, 255)
 
-            val r2 = (baseR * ledBrightness[2] * globalScale).roundToInt().coerceIn(0, 255)
-            val g2 = (baseG * ledBrightness[2] * globalScale).roundToInt().coerceIn(0, 255)
-            val b2 = (baseB * ledBrightness[2] * globalScale).roundToInt().coerceIn(0, 255)
+            val r2 = (rightR * ledBrightness[2] * globalScale).roundToInt().coerceIn(0, 255)
+            val g2 = (rightG * ledBrightness[2] * globalScale).roundToInt().coerceIn(0, 255)
+            val b2 = (rightB * ledBrightness[2] * globalScale).roundToInt().coerceIn(0, 255)
 
-            val r3 = (baseR * ledBrightness[3] * globalScale).roundToInt().coerceIn(0, 255)
-            val g3 = (baseG * ledBrightness[3] * globalScale).roundToInt().coerceIn(0, 255)
-            val b3 = (baseB * ledBrightness[3] * globalScale).roundToInt().coerceIn(0, 255)
+            val r3 = (rightR * ledBrightness[3] * globalScale).roundToInt().coerceIn(0, 255)
+            val g3 = (rightG * ledBrightness[3] * globalScale).roundToInt().coerceIn(0, 255)
+            val b3 = (rightB * ledBrightness[3] * globalScale).roundToInt().coerceIn(0, 255)
 
             ledController.setLedColor(r0, g0, b0, leftTop = true, leftBottom = false, rightTop = false, rightBottom = false)
             ledController.setLedColor(r1, g1, b1, leftTop = false, leftBottom = true, rightTop = false, rightBottom = false)
