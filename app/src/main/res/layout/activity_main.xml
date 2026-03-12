@@ -279,19 +279,42 @@
                             android:layout_height="wrap_content"
                             android:layout_marginBottom="16dp" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/colorButton"
+                        <LinearLayout
                             android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:text="SELECT COLOR"
-                            android:backgroundTint="@color/bifrost_surface"
-                            android:textColor="@color/bifrost_text"
-                            android:textSize="12sp"
-                            android:letterSpacing="0.05"
-                            app:cornerRadius="12dp"
-                            app:strokeWidth="1dp"
-                            app:strokeColor="@color/bifrost_accent"
-                            android:layout_marginBottom="20dp" />
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="20dp">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/colorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="48dp"
+                                android:layout_weight="1"
+                                android:text="LEFT"
+                                android:backgroundTint="@color/bifrost_surface"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="12sp"
+                                android:letterSpacing="0.05"
+                                app:cornerRadius="12dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginEnd="4dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/rightColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="48dp"
+                                android:layout_weight="1"
+                                android:text="RIGHT"
+                                android:backgroundTint="@color/bifrost_surface"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="12sp"
+                                android:letterSpacing="0.05"
+                                app:cornerRadius="12dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginStart="4dp" />
+                        </LinearLayout>
 
                         <TextView
                             android:text="BRIGHTNESS"
