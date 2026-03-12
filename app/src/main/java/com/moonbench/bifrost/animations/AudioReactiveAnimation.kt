@@ -15,6 +15,7 @@ class AudioReactiveAnimation(
     private val mediaProjection: MediaProjection,
     private val displayMetrics: DisplayMetrics,
     private val baseColor: Int,
+    private val baseRightColor: Int = baseColor,
     private val profile: PerformanceProfile
 ) : LedAnimation(ledController) {
 
@@ -146,18 +147,19 @@ class AudioReactiveAnimation(
         val scale = (currentBrightness / 255f).let {
             if (it < 0.02f) 0f else it * it
         }
-        val red = (Color.red(baseColor) * scale).roundToInt().coerceIn(0, 255)
-        val green = (Color.green(baseColor) * scale).roundToInt().coerceIn(0, 255)
-        val blue = (Color.blue(baseColor) * scale).roundToInt().coerceIn(0, 255)
+        val lr = (Color.red(baseColor) * scale).roundToInt().coerceIn(0, 255)
+        val lg = (Color.green(baseColor) * scale).roundToInt().coerceIn(0, 255)
+        val lb = (Color.blue(baseColor) * scale).roundToInt().coerceIn(0, 255)
 
-        ledController.setLedColor(
-            red,
-            green,
-            blue,
-            leftTop = true,
-            leftBottom = true,
-            rightTop = true,
-            rightBottom = true
-        )
+        val rr = (Color.red(baseRightColor) * scale).roundToInt().coerceIn(0, 255)
+        val rg = (Color.green(baseRightColor) * scale).roundToInt().coerceIn(0, 255)
+        val rb = (Color.blue(baseRightColor) * scale).roundToInt().coerceIn(0, 255)
+
+        ledController.setLedColor(lr, lg, lb,
+            leftTop = true, leftBottom = true,
+            rightTop = false, rightBottom = false)
+        ledController.setLedColor(rr, rg, rb,
+            leftTop = false, leftBottom = false,
+            rightTop = true, rightBottom = true)
     }
 }

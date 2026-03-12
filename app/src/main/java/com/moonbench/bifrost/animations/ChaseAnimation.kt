@@ -8,7 +8,8 @@ import kotlin.math.roundToInt
 
 class ChaseAnimation(
     ledController: LedController,
-    initialColor: Int
+    initialColor: Int,
+    initialRightColor: Int = initialColor
 ) : LedAnimation(ledController) {
 
     override val type: LedAnimationType = LedAnimationType.CHASE
@@ -18,6 +19,8 @@ class ChaseAnimation(
     private var running = false
     private var targetColor: Int = initialColor
     private var currentColor: Int = initialColor
+    private var targetRightColor: Int = initialRightColor
+    private var currentRightColor: Int = initialRightColor
     private var targetBrightness: Int = 255
     private var speed: Float = 0.5f
     private var currentLed = 0
@@ -26,6 +29,10 @@ class ChaseAnimation(
 
     override fun setTargetColor(color: Int) {
         targetColor = color
+    }
+
+    override fun setTargetRightColor(color: Int) {
+        targetRightColor = color
     }
 
     override fun setTargetBrightness(brightness: Int) {
@@ -42,10 +49,7 @@ class ChaseAnimation(
 
             val colorFactor = 0.05f + 0.45f * speed
             currentColor = lerpColor(currentColor, targetColor, colorFactor)
-
-            val baseR = Color.red(currentColor)
-            val baseG = Color.green(currentColor)
-            val baseB = Color.blue(currentColor)
+            currentRightColor = lerpColor(currentRightColor, targetRightColor, colorFactor)
 
             val globalScale = targetBrightness / 255f
 
@@ -55,6 +59,11 @@ class ChaseAnimation(
             }
 
             for (i in 0 until 4) {
+                val isRight = i >= 2
+                val baseR = if (isRight) Color.red(currentRightColor) else Color.red(currentColor)
+                val baseG = if (isRight) Color.green(currentRightColor) else Color.green(currentColor)
+                val baseB = if (isRight) Color.blue(currentRightColor) else Color.blue(currentColor)
+
                 val trailIndex = ledTrail.indexOf(i)
                 val brightness = if (trailIndex >= 0) {
                     (1f - trailIndex.toFloat() / trailLength) * globalScale
@@ -67,9 +76,7 @@ class ChaseAnimation(
                 val b = (baseB * brightness).roundToInt().coerceIn(0, 255)
 
                 ledController.setLedColor(
-                    r,
-                    g,
-                    b,
+                    r, g, b,
                     leftTop = i == 0,
                     leftBottom = i == 1,
                     rightTop = i == 2,

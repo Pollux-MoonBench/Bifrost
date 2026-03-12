@@ -128,12 +128,14 @@ class PresetController(
             val useCustomSampling = obj.optBoolean("useCustomSampling", false)
             val useSingleColor = obj.optBoolean("useSingleColor", false)
 
+            val color = obj.optInt("color", Color.WHITE)
             list.add(
                 LedPreset(
                     name = name,
                     animationType = type,
                     performanceProfile = profile,
-                    color = obj.optInt("color", Color.WHITE),
+                    color = color,
+                    rightColor = obj.optInt("rightColor", color),
                     brightness = obj.optInt("brightness", 255),
                     speed = obj.optDouble("speed", 0.5).toFloat(),
                     smoothness = obj.optDouble("smoothness", 0.5).toFloat(),
@@ -158,6 +160,7 @@ class PresetController(
             obj.put("animationType", preset.animationType.name)
             obj.put("performanceProfile", preset.performanceProfile.name)
             obj.put("color", preset.color)
+            obj.put("rightColor", preset.rightColor)
             obj.put("brightness", preset.brightness)
             obj.put("speed", preset.speed.toDouble())
             obj.put("smoothness", preset.smoothness.toDouble())

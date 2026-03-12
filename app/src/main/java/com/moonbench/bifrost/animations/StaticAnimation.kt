@@ -8,7 +8,8 @@ import kotlin.math.roundToInt
 
 class StaticAnimation(
     ledController: LedController,
-    initialColor: Int
+    initialColor: Int,
+    initialRightColor: Int = initialColor
 ) : LedAnimation(ledController) {
 
     override val type: LedAnimationType = LedAnimationType.STATIC
@@ -20,6 +21,9 @@ class StaticAnimation(
     private var targetColor: Int = initialColor
     private var currentColor: Int = initialColor
 
+    private var targetRightColor: Int = initialRightColor
+    private var currentRightColor: Int = initialRightColor
+
     private var targetBrightness: Int = 255
     private var currentBrightness: Int = 255
 
@@ -27,6 +31,10 @@ class StaticAnimation(
 
     override fun setTargetColor(color: Int) {
         targetColor = color
+    }
+
+    override fun setTargetRightColor(color: Int) {
+        targetRightColor = color
     }
 
     override fun setTargetBrightness(brightness: Int) {
@@ -43,23 +51,25 @@ class StaticAnimation(
 
             val factor = 0.15f + 0.7f * lerpStrength
             currentColor = lerpColor(currentColor, targetColor, factor)
+            currentRightColor = lerpColor(currentRightColor, targetRightColor, factor)
             currentBrightness = lerpInt(currentBrightness, targetBrightness, factor)
 
             val scale = currentBrightness / 255f
 
-            val r = (Color.red(currentColor) * scale).roundToInt().coerceIn(0, 255)
-            val g = (Color.green(currentColor) * scale).roundToInt().coerceIn(0, 255)
-            val b = (Color.blue(currentColor) * scale).roundToInt().coerceIn(0, 255)
+            val lr = (Color.red(currentColor) * scale).roundToInt().coerceIn(0, 255)
+            val lg = (Color.green(currentColor) * scale).roundToInt().coerceIn(0, 255)
+            val lb = (Color.blue(currentColor) * scale).roundToInt().coerceIn(0, 255)
 
-            ledController.setLedColor(
-                r,
-                g,
-                b,
-                leftTop = true,
-                leftBottom = true,
-                rightTop = true,
-                rightBottom = true
-            )
+            val rr = (Color.red(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
+            val rg = (Color.green(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
+            val rb = (Color.blue(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
+
+            ledController.setLedColor(lr, lg, lb,
+                leftTop = true, leftBottom = true,
+                rightTop = false, rightBottom = false)
+            ledController.setLedColor(rr, rg, rb,
+                leftTop = false, leftBottom = false,
+                rightTop = true, rightBottom = true)
 
             handler.postDelayed(this, 30L)
         }
