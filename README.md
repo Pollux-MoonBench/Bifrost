@@ -90,9 +90,9 @@ Bifrost can be installed in two different ways:
 If you use **Obtainium**, you can automatically receive updates:
 
 1. Open the Obtainium app. It can be found here : https://github.com/ImranR98/Obtainium
-2. Add a new app using this source: https://github.com/Pollux-MoonBench/Bifrost/releases/
-3. Follow the Obtainium classic installation process
-
+2. Add a new app using this fork as a source: https://github.com/KuriGohan-Kamehameha/Bifrost/releases/
+   (Optionally, Add using the original source: https://github.com/Pollux-MoonBench/Bifrost/releases/)
+3. Follow the Obtainium installation process
 ------------------------------------------------------------------------
 
 ## 🔒 Required Permissions
@@ -113,9 +113,13 @@ locally and is reduced to minimal pixel data for efficiency.
 
 Bifrost has been tested and confirmed to work on the following devices:
 
-- Retroid Pocket Mini V2
-- Retroid Pocket 5
+AYN
+- Thor
 - Odin 2 Portal Pro
+
+Retroid
+- Pocket Mini V2
+- Pocket 5
 
 ------------------------------------------------------------------------
 
@@ -124,6 +128,12 @@ Bifrost has been tested and confirmed to work on the following devices:
 Bifrost is now **out of beta**, but still actively evolving.  
 While overall stability has improved, unexpected behavior may still
 occur on some devices.
+
+Also, this fork is maintained by someone who doesn't understand half 
+the changes they make so keep your expectations low and maybe you'll be pleasantly surprised.
+
+Also also, the maintainer of this fork only cares about their own AYN Thor
+so if you're not using that specific device or something similar you're probably better off using the original version.
 
 ### **Known issues**
 
