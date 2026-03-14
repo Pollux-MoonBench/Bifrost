@@ -1,22 +1,38 @@
 package com.moonbench.bifrost
 
+import android.animation.ValueAnimator
 import android.Manifest
+import android.app.ActivityOptions
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.view.Display
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
+import android.widget.ImageView
+import android.widget.ListView
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.view.animation.LinearInterpolator
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -24,8 +40,11 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.moonbench.bifrost.animations.LedAnimationType
+import com.moonbench.bifrost.services.AppProfileManager
+import com.moonbench.bifrost.services.HeimdallStartupManager
 import com.moonbench.bifrost.services.LEDService
 import com.moonbench.bifrost.services.ServiceController
+import com.moonbench.bifrost.tools.DeviceInfo
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.ui.AnimatedRainbowDrawable
 import com.moonbench.bifrost.ui.BifrostAlertDialog
@@ -35,6 +54,7 @@ import com.moonbench.bifrost.ui.RagnarokWarningDialog
 class MainActivity : AppCompatActivity() {
 
     private lateinit var serviceToggle: SwitchMaterial
+    private lateinit var autoStartupSwitch: SwitchMaterial
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var animationSpinner: Spinner
     private lateinit var profileSpinner: Spinner
@@ -51,11 +71,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var saturationBoostSeekBar: SeekBar
     private lateinit var customSamplingSwitch: SwitchMaterial
     private lateinit var singleColorSwitch: SwitchMaterial
+    private lateinit var breatheWhenChargingSwitch: SwitchMaterial
+    private lateinit var chargingSpeedIndicatorSwitch: SwitchMaterial
+    private lateinit var flashWhenReadySwitch: SwitchMaterial
+    private lateinit var appProfileSwitch: SwitchMaterial
+    private lateinit var assignAppButton: MaterialButton
+    private lateinit var manageAppsButton: MaterialButton
     private lateinit var modeCard: MaterialCardView
     private lateinit var colorCard: MaterialCardView
     private lateinit var animationCard: MaterialCardView
     private lateinit var performanceCard: MaterialCardView
     private lateinit var systemStatusContainer: View
+    private lateinit var bifrostTitleText: TextView
+    private var thorLaunchBottomSwitch: SwitchMaterial? = null
+    private var thorAmbilightBottomSwitch: SwitchMaterial? = null
 
     private val prefs by lazy { getSharedPreferences("bifrost_prefs", MODE_PRIVATE) }
 
@@ -64,7 +93,10 @@ class MainActivity : AppCompatActivity() {
         var mediaProjectionData: Intent? = null
         private const val DEBOUNCE_DELAY = 500L
         private const val SERVICE_RESTART_DELAY = 400L
+        private const val TITLE_INTRO_ANIMATION_MS = 3200L
         private const val PREF_FIRST_LAUNCH_ALERT_SHOWN = "first_launch_alert_shown"
+        private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
+        private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
@@ -78,9 +110,13 @@ class MainActivity : AppCompatActivity() {
     private var selectedSaturationBoost: Float = 0.0f
     private var selectedUseCustomSampling: Boolean = false
     private var selectedUseSingleColor: Boolean = false
+    private var selectedBreatheWhenCharging: Boolean = false
+    private var selectedIndicateChargingSpeed: Boolean = false
+    private var selectedFlashWhenReady: Boolean = false
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
     private var rainbowDrawable: AnimatedRainbowDrawable? = null
+    private var titleIntroAnimator: ValueAnimator? = null
     private var isAppInitialized = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -88,6 +124,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var serviceController: ServiceController
     private val colorPickerDialog = ColorPickerDialog()
     private val ragnarokWarningDialog = RagnarokWarningDialog()
+    private lateinit var appProfileManager: AppProfileManager
 
     private val launchNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -152,6 +189,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (maybeRelaunchOnCorrectDisplay()) return
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -170,6 +209,7 @@ class MainActivity : AppCompatActivity() {
         mediaProjectionManager = getSystemService(MediaProjectionManager::class.java)
 
         serviceToggle = findViewById(R.id.serviceToggle)
+        autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
         animationSpinner = findViewById(R.id.animationSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
         presetSpinner = findViewById(R.id.presetSpinner)
@@ -185,11 +225,18 @@ class MainActivity : AppCompatActivity() {
         saturationBoostSeekBar = findViewById(R.id.saturationBoostSeekBar)
         customSamplingSwitch = findViewById(R.id.customSamplingSwitch)
         singleColorSwitch = findViewById(R.id.singleColorSwitch)
+        breatheWhenChargingSwitch = findViewById(R.id.breatheWhenChargingSwitch)
+        chargingSpeedIndicatorSwitch = findViewById(R.id.chargingSpeedIndicatorSwitch)
+        flashWhenReadySwitch = findViewById(R.id.flashWhenReadySwitch)
+        appProfileSwitch = findViewById(R.id.appProfileSwitch)
+        assignAppButton = findViewById(R.id.assignAppButton)
+        manageAppsButton = findViewById(R.id.manageAppsButton)
         modeCard = findViewById(R.id.modeCard)
         colorCard = findViewById(R.id.colorCard)
         animationCard = findViewById(R.id.animationCard)
         performanceCard = findViewById(R.id.performanceCard)
         systemStatusContainer = findViewById(R.id.systemStatusContainer)
+        bifrostTitleText = findViewById(R.id.bifrostTitleText)
 
         serviceController = ServiceController(
             activity = this,
@@ -212,6 +259,14 @@ class MainActivity : AppCompatActivity() {
         setupSaturationBoostSeekBar()
         setupCustomSamplingSwitch()
         setupSingleColorSwitch()
+        setupBreatheWhenChargingSwitch()
+        setupChargingSpeedIndicatorSwitch()
+        setupFlashWhenReadySwitch()
+        setupRainbowTitleText()
+        appProfileManager = AppProfileManager(prefs)
+        setupAppProfileFeature()
+        setupAutoStartupSwitch()
+        setupThorScreenPreference()
         setupPresetFeature()
         updateParameterVisibility()
         enableRainbowBackground(LEDService.isRunning)
@@ -230,6 +285,8 @@ class MainActivity : AppCompatActivity() {
                 serviceController.stopDebounced()
             }
         }
+
+        maybeAutoStartHeimdallOnLaunch()
 
         isAppInitialized = true
     }
@@ -261,16 +318,58 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         if (!isAppInitialized) return
+        titleIntroAnimator?.cancel()
+        titleIntroAnimator = null
         serviceController.cancelPendingOperations()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         if (!isAppInitialized) return
+        titleIntroAnimator?.cancel()
+        titleIntroAnimator = null
         serviceController.cancelPendingOperations()
         rainbowDrawable?.stop()
         rainbowDrawable = null
     }
+
+    private fun setupRainbowTitleText() {
+        val text = bifrostTitleText.text.toString()
+        if (text.isBlank()) return
+
+        applyRainbowTitlePhase(text, 0f)
+
+        titleIntroAnimator?.cancel()
+        titleIntroAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
+            duration = TITLE_INTRO_ANIMATION_MS
+            interpolator = LinearInterpolator()
+            addUpdateListener { animator ->
+                applyRainbowTitlePhase(text, animator.animatedValue as Float)
+            }
+            start()
+        }
+    }
+
+    private fun applyRainbowTitlePhase(text: String, phaseDegrees: Float) {
+        val rainbowText = SpannableString(text)
+        val maxIndex = (text.length - 1).coerceAtLeast(1)
+
+        text.indices.forEach { index ->
+            if (text[index].isWhitespace()) return@forEach
+
+            val hue = (phaseDegrees + (360f * index / maxIndex)) % 360f
+            val color = Color.HSVToColor(floatArrayOf(hue, 0.82f, 1f))
+            rainbowText.setSpan(
+                ForegroundColorSpan(color),
+                index,
+                index + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        bifrostTitleText.text = rainbowText
+    }
+
     private fun setupAnimationSpinner() {
         val types = LedAnimationType.values().toList()
         val labels = types.map { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } }
@@ -496,6 +595,247 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupBreatheWhenChargingSwitch() {
+        breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
+        breatheWhenChargingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (serviceController.isServiceTransitioning || isUpdatingFromPreset) return@setOnCheckedChangeListener
+            selectedBreatheWhenCharging = isChecked
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupChargingSpeedIndicatorSwitch() {
+        chargingSpeedIndicatorSwitch.isChecked = selectedIndicateChargingSpeed
+        chargingSpeedIndicatorSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (serviceController.isServiceTransitioning || isUpdatingFromPreset) return@setOnCheckedChangeListener
+            selectedIndicateChargingSpeed = isChecked
+            if (isChecked && !selectedBreatheWhenCharging) {
+                selectedBreatheWhenCharging = true
+                breatheWhenChargingSwitch.isChecked = true
+            }
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupFlashWhenReadySwitch() {
+        flashWhenReadySwitch.isChecked = selectedFlashWhenReady
+        flashWhenReadySwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (serviceController.isServiceTransitioning || isUpdatingFromPreset) return@setOnCheckedChangeListener
+            selectedFlashWhenReady = isChecked
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupAutoStartupSwitch() {
+        autoStartupSwitch.isChecked = HeimdallStartupManager.isAutoStartEnabled(prefs)
+
+        autoStartupSwitch.setOnCheckedChangeListener { _, isChecked ->
+            HeimdallStartupManager.setAutoStartEnabled(prefs, isChecked)
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                serviceController.restartDebounced { createLedServiceIntent() }
+            }
+        }
+    }
+
+    private fun setupThorScreenPreference() {
+        val thorCard = findViewById<View>(R.id.thorSettingsCard) ?: return
+        if (!DeviceInfo.isAynThor) {
+            thorCard.visibility = View.GONE
+            return
+        }
+        thorCard.visibility = View.VISIBLE
+
+        thorLaunchBottomSwitch = findViewById(R.id.thorLaunchBottomSwitch)
+        thorLaunchBottomSwitch?.isChecked = prefs.getBoolean(PREF_THOR_BOTTOM_SCREEN, false)
+        thorLaunchBottomSwitch?.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PREF_THOR_BOTTOM_SCREEN, isChecked).apply()
+        }
+
+        thorAmbilightBottomSwitch = findViewById(R.id.thorAmbilightBottomSwitch)
+        thorAmbilightBottomSwitch?.isChecked = prefs.getBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, false)
+        thorAmbilightBottomSwitch?.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, isChecked).apply()
+            // Invalidate cached screen-capture grant so next start targets the new display
+            mediaProjectionResultCode = null
+            mediaProjectionData = null
+            if (LEDService.isRunning && selectedAnimationType.needsMediaProjection) {
+                serviceController.restartDebounced(needsMediaProjectionCheck = true) { createLedServiceIntent() }
+            }
+        }
+    }
+
+    /**
+     * If running on an AYN Thor and the current display does not match the saved
+     * screen preference, relaunches the activity on the correct display and returns true.
+     * The caller should return immediately when this returns true.
+     */
+    private fun maybeRelaunchOnCorrectDisplay(): Boolean {
+        if (!DeviceInfo.isAynThor) return false
+        if (intent.getBooleanExtra("display_relaunched", false)) return false
+
+        val useBottomScreen = prefs.getBoolean(PREF_THOR_BOTTOM_SCREEN, false)
+        val displayManager = getSystemService(DisplayManager::class.java)
+        val currentDisplayId = display?.displayId ?: Display.DEFAULT_DISPLAY
+
+        val targetDisplayId = if (useBottomScreen) {
+            displayManager.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }?.displayId
+                ?: Display.DEFAULT_DISPLAY
+        } else {
+            Display.DEFAULT_DISPLAY
+        }
+
+        if (currentDisplayId == targetDisplayId) return false
+
+        val newIntent = Intent(this, MainActivity::class.java).apply {
+            putExtra("display_relaunched", true)
+        }
+        val options = ActivityOptions.makeBasic()
+        options.launchDisplayId = targetDisplayId
+        startActivity(newIntent, options.toBundle())
+        finish()
+        return true
+    }
+
+    private fun maybeAutoStartHeimdallOnLaunch() {
+        if (!HeimdallStartupManager.isAutoStartEnabled(prefs) || LEDService.isRunning) return
+        if (!checkNotificationPermission()) return
+        if (selectedAnimationType.needsMediaProjection &&
+            (mediaProjectionResultCode == null || mediaProjectionData == null)
+        ) {
+            return
+        }
+
+        serviceToggle.isChecked = true
+    }
+
+    private fun setupAppProfileFeature() {
+        appProfileSwitch.isChecked = appProfileManager.isEnabled
+
+        appProfileSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && !appProfileManager.hasUsageStatsPermission(this)) {
+                appProfileSwitch.isChecked = false
+                Toast.makeText(this, "Grant usage access to Bifrost in Settings", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                return@setOnCheckedChangeListener
+            }
+            appProfileManager.isEnabled = isChecked
+        }
+
+        assignAppButton.setOnClickListener { showAppPickerDialog() }
+        manageAppsButton.setOnClickListener { showMappingsDialog() }
+    }
+
+    private fun showAppPickerDialog() {
+        val pm = packageManager
+        val launchIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolveInfos = pm.queryIntentActivities(launchIntent, 0)
+            .filter { it.activityInfo.packageName != packageName }
+            .sortedBy { it.loadLabel(pm).toString().lowercase() }
+
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_app_picker, null)
+        val listView = view.findViewById<ListView>(R.id.appListView)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(view)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
+        val currentPresetName = presetSpinner.selectedItem?.toString() ?: "Default"
+
+        listView.adapter = object : BaseAdapter() {
+            override fun getCount() = resolveInfos.size
+            override fun getItem(position: Int) = resolveInfos[position]
+            override fun getItemId(position: Int) = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val row = convertView ?: LayoutInflater.from(this@MainActivity)
+                    .inflate(android.R.layout.activity_list_item, parent, false)
+                val ri = resolveInfos[position]
+                val icon = row.findViewById<ImageView>(android.R.id.icon)
+                val text = row.findViewById<TextView>(android.R.id.text1)
+                icon.setImageDrawable(ri.loadIcon(pm))
+                text.text = ri.loadLabel(pm)
+                text.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_text))
+                return row
+            }
+        }
+
+        listView.setOnItemClickListener { _, _, position, _ ->
+            val pkg = resolveInfos[position].activityInfo.packageName
+            val appName = resolveInfos[position].loadLabel(pm)
+            appProfileManager.setMapping(pkg, currentPresetName)
+            Toast.makeText(this, "$appName -> $currentPresetName", Toast.LENGTH_SHORT).show()
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun showMappingsDialog() {
+        val mappings = appProfileManager.getMappings().toList().toMutableList()
+        val pm = packageManager
+
+        if (mappings.isEmpty()) {
+            Toast.makeText(this, "No app profiles assigned", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_app_mappings, null)
+        val listView = view.findViewById<ListView>(R.id.mappingsListView)
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(view)
+            .setPositiveButton("Done", null)
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
+        fun refreshAdapter() {
+            listView.adapter = object : BaseAdapter() {
+                override fun getCount() = mappings.size
+                override fun getItem(position: Int) = mappings[position]
+                override fun getItemId(position: Int) = position.toLong()
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                    val row = convertView ?: LayoutInflater.from(this@MainActivity)
+                        .inflate(android.R.layout.activity_list_item, parent, false)
+                    val (pkg, presetName) = mappings[position]
+                    val icon = row.findViewById<ImageView>(android.R.id.icon)
+                    val text = row.findViewById<TextView>(android.R.id.text1)
+                    val appName = try {
+                        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0))
+                    } catch (_: Exception) { pkg }
+                    icon.setImageDrawable(try {
+                        pm.getApplicationIcon(pkg)
+                    } catch (_: Exception) { null })
+                    text.text = "$appName -> $presetName"
+                    text.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_text))
+                    return row
+                }
+            }
+        }
+        refreshAdapter()
+
+        listView.setOnItemClickListener { _, _, position, _ ->
+            val (pkg, _) = mappings[position]
+            appProfileManager.removeMapping(pkg)
+            mappings.removeAt(position)
+            if (mappings.isEmpty()) {
+                dialog.dismiss()
+                Toast.makeText(this, "All mappings removed", Toast.LENGTH_SHORT).show()
+            } else {
+                refreshAdapter()
+            }
+        }
+
+        dialog.show()
+    }
+
     private fun setupPresetFeature() {
         val initialConfigPreset = LedPreset(
             name = "Initial",
@@ -509,7 +849,10 @@ class MainActivity : AppCompatActivity() {
             sensitivity = selectedSensitivity,
             saturationBoost = selectedSaturationBoost,
             useCustomSampling = selectedUseCustomSampling,
-            useSingleColor = selectedUseSingleColor
+            useSingleColor = selectedUseSingleColor,
+            breatheWhenCharging = selectedBreatheWhenCharging,
+            indicateChargingSpeed = selectedIndicateChargingSpeed,
+            flashWhenReady = selectedFlashWhenReady
         )
 
         presetController = PresetController(
@@ -532,7 +875,10 @@ class MainActivity : AppCompatActivity() {
                     sensitivity = selectedSensitivity,
                     saturationBoost = selectedSaturationBoost,
                     useCustomSampling = selectedUseCustomSampling,
-                    useSingleColor = selectedUseSingleColor
+                    useSingleColor = selectedUseSingleColor,
+                    breatheWhenCharging = selectedBreatheWhenCharging,
+                    indicateChargingSpeed = selectedIndicateChargingSpeed,
+                    flashWhenReady = selectedFlashWhenReady
                 )
             },
             applyPresetToUi = { preset ->
@@ -547,6 +893,9 @@ class MainActivity : AppCompatActivity() {
                 selectedSaturationBoost = preset.saturationBoost
                 selectedUseCustomSampling = preset.useCustomSampling
                 selectedUseSingleColor = preset.useSingleColor
+                selectedBreatheWhenCharging = preset.breatheWhenCharging
+                selectedIndicateChargingSpeed = preset.indicateChargingSpeed
+                selectedFlashWhenReady = preset.flashWhenReady
 
                 val types = LedAnimationType.values().toList()
                 animationSpinner.setSelection(types.indexOf(selectedAnimationType).coerceAtLeast(0))
@@ -564,6 +913,9 @@ class MainActivity : AppCompatActivity() {
                 saturationBoostSeekBar.progress = (selectedSaturationBoost * 100).toInt()
                 customSamplingSwitch.isChecked = selectedUseCustomSampling
                 singleColorSwitch.isChecked = selectedUseSingleColor
+                breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
+                chargingSpeedIndicatorSwitch.isChecked = selectedIndicateChargingSpeed
+                flashWhenReadySwitch.isChecked = selectedFlashWhenReady
 
                 updateParameterVisibility()
             },
@@ -603,6 +955,10 @@ class MainActivity : AppCompatActivity() {
                 selectedAnimationType == LedAnimationType.AMBIAURORA
         val needsSingleColor = selectedAnimationType == LedAnimationType.AMBILIGHT ||
                 selectedAnimationType == LedAnimationType.AMBIAURORA
+        val needsBreatheWhenCharging = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
+        val needsChargingSpeedIndicator = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR &&
+            selectedBreatheWhenCharging
+        val needsFlashWhenReady = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
 
         val supportsBrightness = true
 
@@ -621,7 +977,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         performanceCard.visibility = if (needsProfile) View.VISIBLE else View.GONE
-        animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling || needsSingleColor) View.VISIBLE else View.GONE
+        animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling || needsSingleColor || needsBreatheWhenCharging || needsChargingSpeedIndicator || needsFlashWhenReady) View.VISIBLE else View.GONE
 
         if (animationCard.visibility == View.VISIBLE) {
             val speedLabel = findViewById<View>(R.id.speedLabel)
@@ -630,6 +986,9 @@ class MainActivity : AppCompatActivity() {
             val saturationBoostLabel = findViewById<View>(R.id.saturationBoostLabel)
             val customSamplingLabel = findViewById<View>(R.id.customSamplingLabel)
             val singleColorLabel = findViewById<View>(R.id.singleColorLabel)
+            val breatheWhenChargingRow = findViewById<View>(R.id.breatheWhenChargingRow)
+            val chargingSpeedIndicatorRow = findViewById<View>(R.id.chargingSpeedIndicatorRow)
+            val flashWhenReadyRow = findViewById<View>(R.id.flashWhenReadyRow)
             val ignoreletterbox = findViewById<View>(R.id.ignoreletterbox)
             var bothSticksSameColor = findViewById<View>(R.id.bothSticksSameColor)
 
@@ -652,6 +1011,10 @@ class MainActivity : AppCompatActivity() {
             singleColorLabel?.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
             singleColorSwitch.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
             bothSticksSameColor.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
+
+            breatheWhenChargingRow?.visibility = if (needsBreatheWhenCharging) View.VISIBLE else View.GONE
+            chargingSpeedIndicatorRow?.visibility = if (needsChargingSpeedIndicator) View.VISIBLE else View.GONE
+            flashWhenReadyRow?.visibility = if (needsFlashWhenReady) View.VISIBLE else View.GONE
         }
     }
 
@@ -758,6 +1121,14 @@ class MainActivity : AppCompatActivity() {
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
     }
 
+    private fun getAmbilightTargetDisplayId(): Int {
+        if (!DeviceInfo.isAynThor) return Display.DEFAULT_DISPLAY
+        if (!prefs.getBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, false)) return Display.DEFAULT_DISPLAY
+        val dm = getSystemService(DisplayManager::class.java)
+        return dm.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }?.displayId
+            ?: Display.DEFAULT_DISPLAY
+    }
+
     private fun createLedServiceIntent(): Intent {
         return Intent(this, LEDService::class.java).apply {
             putExtra("animationType", selectedAnimationType.name)
@@ -771,6 +1142,14 @@ class MainActivity : AppCompatActivity() {
             putExtra("saturationBoost", selectedSaturationBoost)
             putExtra("useCustomSampling", selectedUseCustomSampling)
             putExtra("useSingleColor", selectedUseSingleColor)
+            putExtra("breatheWhenCharging", selectedBreatheWhenCharging)
+            putExtra("indicateChargingSpeed", selectedIndicateChargingSpeed)
+            putExtra("flashWhenReady", selectedFlashWhenReady)
+            putExtra("ambilightDisplayId", getAmbilightTargetDisplayId())
+            putExtra(
+                LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
+                HeimdallStartupManager.isAutoStartEnabled(prefs)
+            )
             if (selectedAnimationType.needsMediaProjection) {
                 putExtra("resultCode", mediaProjectionResultCode)
                 putExtra("data", mediaProjectionData)
@@ -791,6 +1170,9 @@ class MainActivity : AppCompatActivity() {
             putExtra("saturationBoost", selectedSaturationBoost)
             putExtra("useCustomSampling", selectedUseCustomSampling)
             putExtra("useSingleColor", selectedUseSingleColor)
+            putExtra("breatheWhenCharging", selectedBreatheWhenCharging)
+            putExtra("indicateChargingSpeed", selectedIndicateChargingSpeed)
+            putExtra("flashWhenReady", selectedFlashWhenReady)
         }
         startService(intent)
     }

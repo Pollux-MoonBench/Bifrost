@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="bifrost_screen_padding">10dp</dimen>
+    <dimen name="bifrost_title_size">22sp</dimen>
+    <dimen name="bifrost_header_control_gap">6dp</dimen>
+    <dimen name="bifrost_spacing_md">10dp</dimen>
+    <dimen name="bifrost_card_padding">12dp</dimen>
+</resources>
