@@ -135,19 +135,6 @@ occur on some devices.
 If you encounter issues, please open a GitHub issue or check the
 existing ones.
 
-------------------------------------------------------------------------
-
-## ☕ Support the Project
-
-If you enjoy Bifrost and want to support development, you can **buy me a
-coffee** here:
-
-👉 https://ko-fi.com/pollux_moonbench
-
-Thank you! ❤️
-
-------------------------------------------------------------------------
-
 ## 📜 License
 
 This project is licensed under **GPLv3**.
