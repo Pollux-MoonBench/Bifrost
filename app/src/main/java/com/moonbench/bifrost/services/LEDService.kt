@@ -455,6 +455,10 @@ class LEDService : Service() {
 
         val preset = appProfileManager.checkForSwitch(this) ?: return
 
+        // While the plugged-in battery override is active, keep tracking foreground-app
+        // changes but do not apply the preset switch until the override is lifted.
+        if (currentBatteryOverrideWhenPlugged && isDevicePluggedIn) return
+
         val needsMP = needsMediaProjection(preset.animationType)
         if (needsMP && mediaProjection == null) return
 
