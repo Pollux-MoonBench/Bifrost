@@ -87,7 +87,7 @@ class ChaseAnimation(
             currentLed = (currentLed + 1) % 4
 
             val delay = (150 - 100 * speed).toLong()
-            handler.postDelayed(this, delay)
+            handler.postDelayed(this, adjustedAnimationDelay(delay, targetBrightness))
         }
     }
 

@@ -105,7 +105,7 @@ class AmbilightAnimation(
             lerpColor(currentRightColor, rightTarget, colorLerpFactor())
         }
 
-        currentBrightness = lerpInt(currentBrightness, targetBrightness, brightnessLerpFactor())
+        currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, brightnessLerpFactor())
 
         val gammaCorrectedBrightness = applyGamma(currentBrightness)
         val scale = gammaCorrectedBrightness / 255f

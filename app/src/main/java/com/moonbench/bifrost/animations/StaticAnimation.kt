@@ -52,7 +52,7 @@ class StaticAnimation(
             val factor = 0.15f + 0.7f * lerpStrength
             currentColor = lerpColor(currentColor, targetColor, factor)
             currentRightColor = lerpColor(currentRightColor, targetRightColor, factor)
-            currentBrightness = lerpInt(currentBrightness, targetBrightness, factor)
+            currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, factor)
 
             val scale = currentBrightness / 255f
 
@@ -71,7 +71,7 @@ class StaticAnimation(
                 leftTop = false, leftBottom = false,
                 rightTop = true, rightBottom = true)
 
-            handler.postDelayed(this, 30L)
+            handler.postDelayed(this, adjustedAnimationDelay(30L, targetBrightness))
         }
     }
 

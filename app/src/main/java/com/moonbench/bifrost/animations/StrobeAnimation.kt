@@ -70,7 +70,7 @@ class StrobeAnimation(
                 rightTop = true, rightBottom = true)
 
             val delay = (100 - 70 * speed).toLong()
-            handler.postDelayed(this, delay)
+            handler.postDelayed(this, adjustedAnimationDelay(delay, targetBrightness))
         }
     }
 

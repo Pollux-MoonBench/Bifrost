@@ -13,6 +13,7 @@ object HeimdallStartupManager {
     private const val PREF_KEY_AUTO_START_HEIMDALL = "auto_start_heimdall"
     private const val PREF_KEY_PRESETS = "presets_json"
     private const val PREF_KEY_LAST_PRESET = "last_preset_name"
+    private const val PREF_KEY_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
 
     fun isAutoStartEnabled(prefs: SharedPreferences): Boolean {
         return prefs.getBoolean(PREF_KEY_AUTO_START_HEIMDALL, false)
@@ -66,6 +67,10 @@ object HeimdallStartupManager {
             putExtra("breatheWhenCharging", preset.breatheWhenCharging)
             putExtra("indicateChargingSpeed", preset.indicateChargingSpeed)
             putExtra("flashWhenReady", preset.flashWhenReady)
+            putExtra(
+                LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
+                prefs.getBoolean(PREF_KEY_BATTERY_OVERRIDE_WHEN_PLUGGED, false)
+            )
             putExtra(LEDService.EXTRA_ALLOW_BACKGROUND_RUN, true)
         }
 
