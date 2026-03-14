@@ -24,6 +24,9 @@ abstract class LedAnimation(protected val ledController: LedController) {
     open fun setSpeed(speed: Float) {}
     open fun setSensitivity(sensitivity: Float) {}
     open fun setSaturationBoost(boost: Float) {}
+    open fun setBreatheWhenCharging(enabled: Boolean) {}
+    open fun setIndicateChargingSpeed(enabled: Boolean) {}
+    open fun setFlashWhenReady(enabled: Boolean) {}
 
     protected fun applyGamma(value: Int): Int {
         val normalized = value / 255f
