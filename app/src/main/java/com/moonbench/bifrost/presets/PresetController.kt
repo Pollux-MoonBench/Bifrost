@@ -127,6 +127,9 @@ class PresetController(
             val accepted = obj.optBoolean("ragnarokAccepted", false)
             val useCustomSampling = obj.optBoolean("useCustomSampling", false)
             val useSingleColor = obj.optBoolean("useSingleColor", false)
+            val breatheWhenCharging = obj.optBoolean("breatheWhenCharging", false)
+            val indicateChargingSpeed = obj.optBoolean("indicateChargingSpeed", false)
+            val flashWhenReady = obj.optBoolean("flashWhenReady", false)
 
             val color = obj.optInt("color", Color.WHITE)
             list.add(
@@ -143,6 +146,9 @@ class PresetController(
                     saturationBoost = obj.optDouble("saturationBoost", 0.0).toFloat(),
                     useCustomSampling = useCustomSampling,
                     useSingleColor = useSingleColor,
+                    breatheWhenCharging = breatheWhenCharging,
+                    indicateChargingSpeed = indicateChargingSpeed,
+                    flashWhenReady = flashWhenReady,
                     ragnarokAccepted = accepted
                 )
             )
@@ -168,6 +174,9 @@ class PresetController(
             obj.put("saturationBoost", preset.saturationBoost.toDouble())
             obj.put("useCustomSampling", preset.useCustomSampling)
             obj.put("useSingleColor", preset.useSingleColor)
+            obj.put("breatheWhenCharging", preset.breatheWhenCharging)
+            obj.put("indicateChargingSpeed", preset.indicateChargingSpeed)
+            obj.put("flashWhenReady", preset.flashWhenReady)
             obj.put("ragnarokAccepted", preset.ragnarokAccepted)
             array.put(obj)
         }

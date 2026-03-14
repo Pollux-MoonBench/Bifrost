@@ -17,7 +17,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
+import android.view.Display
 import android.view.WindowManager
 import com.moonbench.bifrost.MainActivity
 import com.moonbench.bifrost.R
@@ -38,6 +40,7 @@ import com.moonbench.bifrost.animations.StaticAnimation
 import com.moonbench.bifrost.animations.StrobeAnimation
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
+import com.moonbench.bifrost.LedPreset
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LEDService : Service() {
@@ -47,6 +50,7 @@ class LEDService : Service() {
         const val NOTIFICATION_ID = 4242
         const val ACTION_STOP = "com.moonbench.bifrost.STOP"
         const val ACTION_UPDATE_PARAMS = "com.moonbench.bifrost.UPDATE_PARAMS"
+        const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         var isRunning = false
     }
 
@@ -69,12 +73,23 @@ class LEDService : Service() {
     private var currentSaturationBoost: Float = 0f
     private var currentUseCustomSampling: Boolean = false
     private var currentUseSingleColor: Boolean = false
+    private var currentBreatheWhenCharging: Boolean = false
+    private var currentIndicateChargingSpeed: Boolean = false
+    private var currentFlashWhenReady: Boolean = false
+    private var allowBackgroundRun: Boolean = false
+    private var currentAmbilightDisplayId: Int = Display.DEFAULT_DISPLAY
+
+    private val appProfileManager by lazy {
+        val prefs = getSharedPreferences("bifrost_prefs", MODE_PRIVATE)
+        AppProfileManager(prefs)
+    }
 
     private val activityCheckRunnable = object : Runnable {
         override fun run() {
-            if (!isActivityRunning()) {
+            if (!allowBackgroundRun && !isActivityRunning()) {
                 cleanupAndStop()
             } else {
+                checkAutoProfileSwitch()
                 handler.postDelayed(this, 2000)
             }
         }
@@ -103,6 +118,8 @@ class LEDService : Service() {
             handleUpdateParams(intent)
             return START_NOT_STICKY
         }
+
+        allowBackgroundRun = intent.getBooleanExtra(EXTRA_ALLOW_BACKGROUND_RUN, allowBackgroundRun)
 
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -136,6 +153,10 @@ class LEDService : Service() {
         currentSaturationBoost = intent.getFloatExtra("saturationBoost", 0f).coerceIn(0f, 1f)
         currentUseCustomSampling = intent.getBooleanExtra("useCustomSampling", false)
         currentUseSingleColor = intent.getBooleanExtra("useSingleColor", false)
+        currentBreatheWhenCharging = intent.getBooleanExtra("breatheWhenCharging", false)
+        currentIndicateChargingSpeed = intent.getBooleanExtra("indicateChargingSpeed", false)
+        currentFlashWhenReady = intent.getBooleanExtra("flashWhenReady", false)
+        currentAmbilightDisplayId = intent.getIntExtra("ambilightDisplayId", Display.DEFAULT_DISPLAY)
 
         currentAnimationType = animationType
         currentProfile = profile
@@ -245,6 +266,39 @@ class LEDService : Service() {
                 startAnimation(type, currentColor, currentRightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
             }
         }
+
+        if (intent.hasExtra("breatheWhenCharging")) {
+            val newBreatheWhenCharging = intent.getBooleanExtra(
+                "breatheWhenCharging",
+                currentBreatheWhenCharging
+            )
+            if (newBreatheWhenCharging != currentBreatheWhenCharging) {
+                currentBreatheWhenCharging = newBreatheWhenCharging
+                animation.setBreatheWhenCharging(currentBreatheWhenCharging)
+            }
+        }
+
+        if (intent.hasExtra("indicateChargingSpeed")) {
+            val newIndicateChargingSpeed = intent.getBooleanExtra(
+                "indicateChargingSpeed",
+                currentIndicateChargingSpeed
+            )
+            if (newIndicateChargingSpeed != currentIndicateChargingSpeed) {
+                currentIndicateChargingSpeed = newIndicateChargingSpeed
+                animation.setIndicateChargingSpeed(currentIndicateChargingSpeed)
+            }
+        }
+
+        if (intent.hasExtra("flashWhenReady")) {
+            val newFlashWhenReady = intent.getBooleanExtra(
+                "flashWhenReady",
+                currentFlashWhenReady
+            )
+            if (newFlashWhenReady != currentFlashWhenReady) {
+                currentFlashWhenReady = newFlashWhenReady
+                animation.setFlashWhenReady(currentFlashWhenReady)
+            }
+        }
     }
 
     private fun processAnimationChange(
@@ -311,6 +365,37 @@ class LEDService : Service() {
         }
     }
 
+    private fun checkAutoProfileSwitch() {
+        if (!isRunning || isTransitioning.get() || isStopping.get()) return
+
+        val preset = appProfileManager.checkForSwitch(this) ?: return
+
+        val needsMP = needsMediaProjection(preset.animationType)
+        if (needsMP && mediaProjection == null) return
+
+        currentAnimationType = preset.animationType
+        currentProfile = preset.performanceProfile
+        currentColor = preset.color
+        currentRightColor = preset.rightColor
+        currentBrightness = preset.brightness
+        currentSpeed = preset.speed
+        currentSmoothness = preset.smoothness
+        currentSensitivity = preset.sensitivity
+        currentSaturationBoost = preset.saturationBoost
+        currentUseCustomSampling = preset.useCustomSampling
+        currentUseSingleColor = preset.useSingleColor
+        currentBreatheWhenCharging = preset.breatheWhenCharging
+        currentIndicateChargingSpeed = preset.indicateChargingSpeed
+        currentFlashWhenReady = preset.flashWhenReady
+
+        stopCurrentAnimation()
+        startAnimation(
+            currentAnimationType, currentColor, currentRightColor,
+            currentBrightness, currentSpeed, currentSmoothness,
+            currentSensitivity, currentProfile, currentSaturationBoost
+        )
+    }
+
     private fun isActivityRunning(): Boolean {
         val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val tasks = activityManager.appTasks
@@ -325,7 +410,9 @@ class LEDService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        cleanupAndStop()
+        if (!allowBackgroundRun) {
+            cleanupAndStop()
+        }
     }
 
     override fun onDestroy() {
@@ -340,6 +427,7 @@ class LEDService : Service() {
         try {
             handler.removeCallbacks(activityCheckRunnable)
             isRunning = false
+            allowBackgroundRun = false
             isTransitioning.set(false)
 
             stopCurrentAnimation()
@@ -410,6 +498,19 @@ class LEDService : Service() {
             .build()
     }
 
+    @Suppress("DEPRECATION")
+    private fun getDisplayMetrics(displayId: Int): DisplayMetrics {
+        val metrics = DisplayMetrics()
+        val dm = getSystemService(DisplayManager::class.java)
+        val display = dm.getDisplay(displayId) ?: dm.getDisplay(Display.DEFAULT_DISPLAY)
+        if (display != null) {
+            display.getMetrics(metrics)
+        } else {
+            getSystemService(WindowManager::class.java).defaultDisplay.getMetrics(metrics)
+        }
+        return metrics
+    }
+
     private fun startAnimation(
         type: LedAnimationType,
         color: Int,
@@ -427,6 +528,9 @@ class LEDService : Service() {
             currentAnimation?.setSpeed(speed)
             currentAnimation?.setLerpStrength(smoothness)
             currentAnimation?.setSensitivity(sensitivity)
+            currentAnimation?.setBreatheWhenCharging(currentBreatheWhenCharging)
+            currentAnimation?.setIndicateChargingSpeed(currentIndicateChargingSpeed)
+            currentAnimation?.setFlashWhenReady(currentFlashWhenReady)
             currentAnimation?.start()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -450,9 +554,7 @@ class LEDService : Service() {
         return when (type) {
             LedAnimationType.AMBILIGHT -> {
                 val projection = mediaProjection ?: return null
-                val windowManager = getSystemService(WindowManager::class.java)
-                val displayMetrics = DisplayMetrics()
-                windowManager.defaultDisplay.getMetrics(displayMetrics)
+                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbilightAnimation(
                     ledController,
                     projection,
@@ -465,9 +567,7 @@ class LEDService : Service() {
             }
             LedAnimationType.AUDIO_REACTIVE -> {
                 val projection = mediaProjection ?: return null
-                val windowManager = getSystemService(WindowManager::class.java)
-                val displayMetrics = DisplayMetrics()
-                windowManager.defaultDisplay.getMetrics(displayMetrics)
+                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AudioReactiveAnimation(
                     ledController,
                     projection,
@@ -479,9 +579,7 @@ class LEDService : Service() {
             }
             LedAnimationType.AMBIAURORA -> {
                 val projection = mediaProjection ?: return null
-                val windowManager = getSystemService(WindowManager::class.java)
-                val displayMetrics = DisplayMetrics()
-                windowManager.defaultDisplay.getMetrics(displayMetrics)
+                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbiAuroraAnimation(
                     ledController,
                     projection,
@@ -492,7 +590,13 @@ class LEDService : Service() {
                     saturationBoost
                 )
             }
-            LedAnimationType.BATTERY_INDICATOR -> BatteryIndicatorAnimation(ledController, this)
+            LedAnimationType.BATTERY_INDICATOR -> BatteryIndicatorAnimation(
+                ledController,
+                this,
+                currentBreatheWhenCharging,
+                currentIndicateChargingSpeed,
+                currentFlashWhenReady
+            )
             LedAnimationType.STATIC -> StaticAnimation(ledController, color, rightColor)
             LedAnimationType.BREATH -> BreathAnimation(ledController, color, rightColor)
             LedAnimationType.RAINBOW -> RainbowAnimation(ledController)
