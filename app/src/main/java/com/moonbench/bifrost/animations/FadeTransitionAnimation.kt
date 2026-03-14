@@ -76,7 +76,7 @@ class FadeTransitionAnimation(
                 direction = 1
             }
 
-            handler.postDelayed(this, 30L)
+            handler.postDelayed(this, adjustedAnimationDelay(30L, targetBrightness))
         }
     }
 

@@ -1,5 +1,7 @@
 package com.moonbench.bifrost
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.ActivityOptions
@@ -50,11 +52,16 @@ import com.moonbench.bifrost.ui.AnimatedRainbowDrawable
 import com.moonbench.bifrost.ui.BifrostAlertDialog
 import com.moonbench.bifrost.ui.ColorPickerDialog
 import com.moonbench.bifrost.ui.RagnarokWarningDialog
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var serviceToggle: SwitchMaterial
     private lateinit var autoStartupSwitch: SwitchMaterial
+    private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var animationSpinner: Spinner
     private lateinit var profileSpinner: Spinner
@@ -82,6 +89,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var animationCard: MaterialCardView
     private lateinit var performanceCard: MaterialCardView
     private lateinit var systemStatusContainer: View
+    private lateinit var bifrostLogoView: ImageView
     private lateinit var bifrostTitleText: TextView
     private var thorLaunchBottomSwitch: SwitchMaterial? = null
     private var thorAmbilightBottomSwitch: SwitchMaterial? = null
@@ -97,6 +105,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_FIRST_LAUNCH_ALERT_SHOWN = "first_launch_alert_shown"
         private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
+        private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
@@ -113,11 +122,13 @@ class MainActivity : AppCompatActivity() {
     private var selectedBreatheWhenCharging: Boolean = false
     private var selectedIndicateChargingSpeed: Boolean = false
     private var selectedFlashWhenReady: Boolean = false
+    private var selectedBatteryOverrideWhenPlugged: Boolean = false
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
     private var rainbowDrawable: AnimatedRainbowDrawable? = null
     private var titleIntroAnimator: ValueAnimator? = null
     private var isAppInitialized = false
+    private var bifrostTitleLabel: String = ""
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var presetController: PresetController
@@ -210,6 +221,7 @@ class MainActivity : AppCompatActivity() {
 
         serviceToggle = findViewById(R.id.serviceToggle)
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
+        pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
         animationSpinner = findViewById(R.id.animationSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
         presetSpinner = findViewById(R.id.presetSpinner)
@@ -236,6 +248,7 @@ class MainActivity : AppCompatActivity() {
         animationCard = findViewById(R.id.animationCard)
         performanceCard = findViewById(R.id.performanceCard)
         systemStatusContainer = findViewById(R.id.systemStatusContainer)
+        bifrostLogoView = findViewById(R.id.bifrostLogoView)
         bifrostTitleText = findViewById(R.id.bifrostTitleText)
 
         serviceController = ServiceController(
@@ -266,6 +279,7 @@ class MainActivity : AppCompatActivity() {
         appProfileManager = AppProfileManager(prefs)
         setupAppProfileFeature()
         setupAutoStartupSwitch()
+        setupPluggedBatteryOverrideSwitch()
         setupThorScreenPreference()
         setupPresetFeature()
         updateParameterVisibility()
@@ -334,20 +348,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRainbowTitleText() {
-        val text = bifrostTitleText.text.toString()
-        if (text.isBlank()) return
+        bifrostTitleLabel = bifrostTitleText.text.toString()
+        if (bifrostTitleLabel.isBlank()) return
 
-        applyRainbowTitlePhase(text, 0f)
-
-        titleIntroAnimator?.cancel()
-        titleIntroAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
-            duration = TITLE_INTRO_ANIMATION_MS
-            interpolator = LinearInterpolator()
-            addUpdateListener { animator ->
-                applyRainbowTitlePhase(text, animator.animatedValue as Float)
-            }
-            start()
-        }
+        bifrostLogoView.setOnClickListener { playBifrostHeaderAnimation() }
+        bifrostTitleText.setOnClickListener { playBifrostHeaderAnimation() }
+        resetBifrostHeaderAnimationState()
+        playBifrostHeaderAnimation()
     }
 
     private fun applyRainbowTitlePhase(text: String, phaseDegrees: Float) {
@@ -368,6 +375,90 @@ class MainActivity : AppCompatActivity() {
         }
 
         bifrostTitleText.text = rainbowText
+    }
+
+    private fun applyWatercolorTitlePhase(text: String, phaseDegrees: Float) {
+        val watercolorText = SpannableString(text)
+        val maxIndex = (text.length - 1).coerceAtLeast(1)
+
+        text.indices.forEach { index ->
+            if (text[index].isWhitespace()) return@forEach
+
+            val letterProgress = index / maxIndex.toFloat()
+            val hue = (phaseDegrees + 300f * letterProgress + 10f * sin(letterProgress * PI).toFloat()) % 360f
+            val saturation = (0.28f + 0.14f * ((sin(letterProgress * PI * 3.0) + 1.0) / 2.0).toFloat())
+                .coerceIn(0f, 1f)
+            val value = (0.92f + 0.08f * ((cos(letterProgress * PI * 2.0) + 1.0) / 2.0).toFloat())
+                .coerceIn(0f, 1f)
+            val alpha = (224 + 31 * ((sin(letterProgress * PI * 2.5) + 1.0) / 2.0)).roundToInt()
+                .coerceIn(0, 255)
+            val color = Color.HSVToColor(alpha, floatArrayOf(hue, saturation, value))
+
+            watercolorText.setSpan(
+                ForegroundColorSpan(color),
+                index,
+                index + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        bifrostTitleText.text = watercolorText
+    }
+
+    private fun playBifrostHeaderAnimation() {
+        if (bifrostTitleLabel.isBlank()) return
+
+        titleIntroAnimator?.cancel()
+        titleIntroAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = TITLE_INTRO_ANIMATION_MS
+            interpolator = LinearInterpolator()
+            addUpdateListener { animator ->
+                val progress = animator.animatedValue as Float
+                val phaseDegrees = progress * 720f
+                applyRainbowTitlePhase(bifrostTitleLabel, phaseDegrees)
+                applyBifrostLogoAnimationFrame(progress, phaseDegrees)
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                private var wasCanceled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    wasCanceled = true
+                    resetBifrostHeaderAnimationState()
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    titleIntroAnimator = null
+                    if (!wasCanceled) {
+                        resetBifrostHeaderAnimationState()
+                    }
+                }
+            })
+            start()
+        }
+    }
+
+    private fun applyBifrostLogoAnimationFrame(progress: Float, phaseDegrees: Float) {
+        val spinWave = sin(progress * PI * 10.0).toFloat()
+        val pulseWave = ((1.0 - cos(progress * PI * 6.0)) / 2.0).toFloat()
+        val driftWave = sin(progress * PI * 4.0).toFloat()
+
+        bifrostLogoView.rotation = 16f * spinWave
+        bifrostLogoView.scaleX = 1f + (0.12f * pulseWave)
+        bifrostLogoView.scaleY = 1f + (0.12f * pulseWave)
+        bifrostLogoView.translationY = -10f * driftWave
+        bifrostLogoView.alpha = 0.9f + (0.1f * pulseWave)
+    }
+
+    private fun resetBifrostHeaderAnimationState() {
+        if (bifrostTitleLabel.isBlank()) return
+
+        applyWatercolorTitlePhase(bifrostTitleLabel, 18f)
+        bifrostLogoView.rotation = 0f
+        bifrostLogoView.scaleX = 1f
+        bifrostLogoView.scaleY = 1f
+        bifrostLogoView.translationY = 0f
+        bifrostLogoView.alpha = 1f
+        bifrostLogoView.clearColorFilter()
     }
 
     private fun setupAnimationSpinner() {
@@ -640,6 +731,21 @@ class MainActivity : AppCompatActivity() {
 
             if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
                 serviceController.restartDebounced { createLedServiceIntent() }
+            }
+        }
+    }
+
+    private fun setupPluggedBatteryOverrideSwitch() {
+        selectedBatteryOverrideWhenPlugged =
+            prefs.getBoolean(PREF_BATTERY_OVERRIDE_WHEN_PLUGGED, false)
+        pluggedBatteryOverrideSwitch.isChecked = selectedBatteryOverrideWhenPlugged
+
+        pluggedBatteryOverrideSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedBatteryOverrideWhenPlugged = isChecked
+            prefs.edit().putBoolean(PREF_BATTERY_OVERRIDE_WHEN_PLUGGED, isChecked).apply()
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
             }
         }
     }
@@ -1145,6 +1251,10 @@ class MainActivity : AppCompatActivity() {
             putExtra("breatheWhenCharging", selectedBreatheWhenCharging)
             putExtra("indicateChargingSpeed", selectedIndicateChargingSpeed)
             putExtra("flashWhenReady", selectedFlashWhenReady)
+            putExtra(
+                LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
+                selectedBatteryOverrideWhenPlugged
+            )
             putExtra("ambilightDisplayId", getAmbilightTargetDisplayId())
             putExtra(
                 LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
@@ -1173,6 +1283,10 @@ class MainActivity : AppCompatActivity() {
             putExtra("breatheWhenCharging", selectedBreatheWhenCharging)
             putExtra("indicateChargingSpeed", selectedIndicateChargingSpeed)
             putExtra("flashWhenReady", selectedFlashWhenReady)
+            putExtra(
+                LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
+                selectedBatteryOverrideWhenPlugged
+            )
         }
         startService(intent)
     }

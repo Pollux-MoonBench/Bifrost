@@ -1,15 +1,18 @@
 package com.moonbench.bifrost.animations
 
 import android.graphics.Color
-import android.util.Log
+import com.moonbench.bifrost.tools.DeviceInfo
 import com.moonbench.bifrost.tools.LedController
 import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
 abstract class LedAnimation(protected val ledController: LedController) {
+
+    companion object {
+        private const val THOR_LOW_BRIGHTNESS_THRESHOLD = 51
+        private const val THOR_LOW_BRIGHTNESS_SPEED_MULTIPLIER = 1.35f
+    }
 
     abstract val type: LedAnimationType
     abstract val needsColorSelection: Boolean
@@ -40,6 +43,41 @@ abstract class LedAnimation(protected val ledController: LedController) {
         val raw = from + (to - from) * f
         val result = if (abs(to - raw) < 1f) to else raw.roundToInt()
         return result.coerceIn(0, 255)
+    }
+
+    protected fun lerpBrightnessInt(from: Int, to: Int, factor: Float): Int {
+        val isThorLowBrightnessRange =
+            DeviceInfo.isAynThor &&
+                (from <= THOR_LOW_BRIGHTNESS_THRESHOLD || to <= THOR_LOW_BRIGHTNESS_THRESHOLD)
+
+        val adjustedFactor = if (isThorLowBrightnessRange) {
+            (factor * THOR_LOW_BRIGHTNESS_SPEED_MULTIPLIER).coerceAtMost(0.92f)
+        } else {
+            factor
+        }
+
+        val interpolated = lerpInt(from, to, adjustedFactor)
+        if (!isThorLowBrightnessRange || from == to) return interpolated
+
+        if (interpolated == from) {
+            val distance = abs(to - from)
+            val minStep = when {
+                distance >= 18 -> 3
+                distance >= 8 -> 2
+                else -> 1
+            }
+            return if (to > from) {
+                (from + minStep).coerceAtMost(to).coerceIn(0, 255)
+            } else {
+                (from - minStep).coerceAtLeast(to).coerceIn(0, 255)
+            }
+        }
+
+        return interpolated
+    }
+
+    protected fun adjustedAnimationDelay(baseDelayMs: Long, brightness: Int): Long {
+        return baseDelayMs
     }
 
     protected fun lerpFloat(from: Float, to: Float, factor: Float): Float {

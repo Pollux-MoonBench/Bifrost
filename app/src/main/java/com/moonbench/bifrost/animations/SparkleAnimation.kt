@@ -90,7 +90,7 @@ class SparkleAnimation(
             ledController.setLedColor(r2, g2, b2, leftTop = false, leftBottom = false, rightTop = true, rightBottom = false)
             ledController.setLedColor(r3, g3, b3, leftTop = false, leftBottom = false, rightTop = false, rightBottom = true)
 
-            handler.postDelayed(this, 50L)
+            handler.postDelayed(this, adjustedAnimationDelay(50L, targetBrightness))
         }
     }
 

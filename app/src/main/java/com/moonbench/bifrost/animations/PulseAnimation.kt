@@ -75,7 +75,7 @@ class PulseAnimation(
                 counter = 0
             }
 
-            handler.postDelayed(this, 30L)
+            handler.postDelayed(this, adjustedAnimationDelay(30L, targetBrightness))
         }
     }
 

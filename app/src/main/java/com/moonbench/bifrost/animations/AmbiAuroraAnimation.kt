@@ -74,7 +74,7 @@ class AmbiAuroraAnimation(
                 smoothedIntensity = lerpFloat(smoothedIntensity, intensity, f)
                 val mapped = mapIntensity(smoothedIntensity)
                 val target = (targetBrightness * mapped).roundToInt()
-                currentBrightness = lerpInt(currentBrightness, target, brightnessLerpFactor())
+                currentBrightness = lerpBrightnessInt(currentBrightness, target, brightnessLerpFactor())
                 needsLedUpdate = true
             }
 
@@ -83,7 +83,7 @@ class AmbiAuroraAnimation(
             }
 
             if (isRunning) {
-                updateHandler?.postDelayed(this, updateInterval)
+                updateHandler?.postDelayed(this, adjustedAnimationDelay(updateInterval, targetBrightness))
             }
         }
     }
