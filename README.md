@@ -145,6 +145,25 @@ so if you're not using that specific device or something similar you're probably
 If you encounter issues, please open a GitHub issue or check the
 existing ones.
 
+## 🧬 Fork vs Upstream (what’s different)
+
+This fork contains enhancements that aren’t (yet) in the upstream Pollux-MoonBench/Bifrost main branch.
+
+### Key additions
+
+- **Auto-start on boot** to keep Bifrost running after device reboot.
+- **Improved charging indicator**:
+  - Breathing lights while charging
+  - Charging speed indication
+  - Flash notification when charging completes
+- **New CPU temperature LED animation** (colors shift based on thermal readings).
+
+### Project-level differences
+
+- Includes a **`CHANGELOG.md`** to track releases and notable changes.
+- Releases include a published **APK asset** (tagged `v1.0.6`).
+- Updated UI layout and animation smoothing tweaks across several animations.
+
 ## 📜 License
 
 This project is licensed under **GPLv3**.
