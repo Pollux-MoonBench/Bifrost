@@ -140,18 +140,21 @@ so if you're not using that specific device or something similar you're probably
 - Random crashes under certain conditions
 - Granting notification permission at launch may cause the LED toggle
   switch to appear disabled even though animations continue running
-- On the Retroid Pocket Mini, only the left stick turns on in Ambilight mode. This issue can be solved using the custom color sampler mode. Thank's to r/hupo224 for helping me work on this issue.
+- On the Retroid Pocket Mini, only the left stick turns on in Ambilight mode.
+  This issue can be solved using the custom color sampler mode.
+  (Thanks to r/hupo224 for helping with this issue.)
 
-If you encounter issues, please open a GitHub issue or check the
-existing ones.
+If you encounter issues, please open a GitHub issue or check the existing ones.
 
-## 🧬 Fork vs Upstream (what’s different)
+## 🧬 Fork vs Upstream (what’s different?)
 
 This fork contains enhancements that aren’t (yet) in the upstream Pollux-MoonBench/Bifrost main branch.
 
 ### Key additions
 
 - **Auto-start on boot** to keep Bifrost running after device reboot.
+- Individual left/right control -- make each side a distinct colour!
+- Profiles can now be assigned to apps, and will automatically activate when the selected app is in the foreground. 
 - **Improved charging indicator**:
   - Breathing lights while charging
   - Charging speed indication
@@ -171,4 +174,4 @@ This project is licensed under **GPLv3**.
 You are free to use, study, modify, and redistribute the app under the
 terms of the GPLv3 license.\
 This app is provided for free in this repository and **cannot be sold to
-you.**
+you.** You should never have to pay for Bifrost!
