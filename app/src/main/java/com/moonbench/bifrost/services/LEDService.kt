@@ -56,6 +56,7 @@ class LEDService : Service() {
         const val ACTION_UPDATE_PARAMS = "com.moonbench.bifrost.UPDATE_PARAMS"
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
+        const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
         var isRunning = false
     }
 
@@ -82,6 +83,7 @@ class LEDService : Service() {
     private var currentIndicateChargingSpeed: Boolean = false
     private var currentFlashWhenReady: Boolean = false
     private var currentBatteryOverrideWhenPlugged: Boolean = false
+    private var currentPersistentNotification: Boolean = true
     private var allowBackgroundRun: Boolean = false
     private var currentAmbilightDisplayId: Int = Display.DEFAULT_DISPLAY
     private var activeAnimationType: LedAnimationType? = null
@@ -141,6 +143,10 @@ class LEDService : Service() {
         }
 
         allowBackgroundRun = intent.getBooleanExtra(EXTRA_ALLOW_BACKGROUND_RUN, allowBackgroundRun)
+        currentPersistentNotification = intent.getBooleanExtra(
+            EXTRA_PERSISTENT_NOTIFICATION,
+            currentPersistentNotification
+        )
 
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -308,6 +314,17 @@ class LEDService : Service() {
             if (newBatteryOverrideWhenPlugged != currentBatteryOverrideWhenPlugged) {
                 currentBatteryOverrideWhenPlugged = newBatteryOverrideWhenPlugged
                 restartAnimationForCurrentState()
+            }
+        }
+
+        if (intent.hasExtra(EXTRA_PERSISTENT_NOTIFICATION)) {
+            val newPersistentNotification = intent.getBooleanExtra(
+                EXTRA_PERSISTENT_NOTIFICATION,
+                currentPersistentNotification
+            )
+            if (newPersistentNotification != currentPersistentNotification) {
+                currentPersistentNotification = newPersistentNotification
+                updateForegroundNotification()
             }
         }
     }
@@ -569,18 +586,30 @@ class LEDService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-        val mainIntent = Intent(this, MainActivity::class.java)
+        val mainIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val mainPendingIntent =
             PendingIntent.getActivity(this, 0, mainIntent, PendingIntent.FLAG_IMMUTABLE)
 
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("LED Active")
-            .setContentText("Tap to configure")
+            .setContentText("Bifrost is running")
+            .setSubText("Tap this notification to modify settings")
             .setSmallIcon(R.mipmap.ic_notification_foreground)
             .setContentIntent(mainPendingIntent)
             .addAction(android.R.drawable.ic_delete, "Stop", stopPendingIntent)
-            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setOngoing(currentPersistentNotification)
             .build()
+    }
+
+    private fun updateForegroundNotification() {
+        if (!isRunning) return
+        val manager = getSystemService(NotificationManager::class.java)
+        runCatching {
+            manager.notify(NOTIFICATION_ID, createNotification())
+        }
     }
 
     @Suppress("DEPRECATION")

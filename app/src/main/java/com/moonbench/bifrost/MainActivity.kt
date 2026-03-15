@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var serviceToggle: SwitchMaterial
     private lateinit var autoStartupSwitch: SwitchMaterial
     private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
+    private lateinit var persistentNotificationSwitch: SwitchMaterial
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var animationSpinner: Spinner
     private lateinit var profileSpinner: Spinner
@@ -106,6 +107,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
+        private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
@@ -123,6 +125,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedIndicateChargingSpeed: Boolean = false
     private var selectedFlashWhenReady: Boolean = false
     private var selectedBatteryOverrideWhenPlugged: Boolean = false
+    private var selectedPersistentNotification: Boolean = true
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
     private var rainbowDrawable: AnimatedRainbowDrawable? = null
@@ -222,6 +225,7 @@ class MainActivity : AppCompatActivity() {
         serviceToggle = findViewById(R.id.serviceToggle)
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
         pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
+        persistentNotificationSwitch = findViewById(R.id.persistentNotificationSwitch)
         animationSpinner = findViewById(R.id.animationSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
         presetSpinner = findViewById(R.id.presetSpinner)
@@ -280,6 +284,7 @@ class MainActivity : AppCompatActivity() {
         setupAppProfileFeature()
         setupAutoStartupSwitch()
         setupPluggedBatteryOverrideSwitch()
+        setupPersistentNotificationSwitch()
         setupThorScreenPreference()
         setupPresetFeature()
         updateParameterVisibility()
@@ -743,6 +748,21 @@ class MainActivity : AppCompatActivity() {
         pluggedBatteryOverrideSwitch.setOnCheckedChangeListener { _, isChecked ->
             selectedBatteryOverrideWhenPlugged = isChecked
             prefs.edit().putBoolean(PREF_BATTERY_OVERRIDE_WHEN_PLUGGED, isChecked).apply()
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupPersistentNotificationSwitch() {
+        selectedPersistentNotification =
+            prefs.getBoolean(PREF_PERSISTENT_NOTIFICATION, true)
+        persistentNotificationSwitch.isChecked = selectedPersistentNotification
+
+        persistentNotificationSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedPersistentNotification = isChecked
+            prefs.edit().putBoolean(PREF_PERSISTENT_NOTIFICATION, isChecked).apply()
 
             if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
                 sendLiveUpdateToLedService()
@@ -1255,6 +1275,10 @@ class MainActivity : AppCompatActivity() {
                 LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
                 selectedBatteryOverrideWhenPlugged
             )
+            putExtra(
+                LEDService.EXTRA_PERSISTENT_NOTIFICATION,
+                selectedPersistentNotification
+            )
             putExtra("ambilightDisplayId", getAmbilightTargetDisplayId())
             putExtra(
                 LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
@@ -1286,6 +1310,10 @@ class MainActivity : AppCompatActivity() {
             putExtra(
                 LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
                 selectedBatteryOverrideWhenPlugged
+            )
+            putExtra(
+                LEDService.EXTRA_PERSISTENT_NOTIFICATION,
+                selectedPersistentNotification
             )
         }
         startService(intent)
