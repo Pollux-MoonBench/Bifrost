@@ -84,24 +84,47 @@ object PresetVisuals {
 
 object PresetImageStorage {
     private const val DIRECTORY_NAME = "preset_icons"
+    private const val MAX_IMAGE_BYTES = 8L * 1024L * 1024L
+    private val SAFE_FILE_NAME_REGEX = Regex("^[A-Za-z0-9._-]{1,96}$")
 
     fun copyPickedImage(context: Context, sourceUri: Uri): String? {
+        val mimeType = context.contentResolver.getType(sourceUri)?.lowercase() ?: return null
+        if (!mimeType.startsWith("image/")) return null
+
         val extension = MimeTypeMap.getSingleton()
-            .getExtensionFromMimeType(context.contentResolver.getType(sourceUri))
+            .getExtensionFromMimeType(mimeType)
             ?.lowercase()
             ?.ifBlank { null }
             ?: "img"
+
+        val safeExtension = extension.filter { it.isLetterOrDigit() }
+            .ifBlank { "img" }
+            .take(8)
+
         val fileName = "preset_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.$extension"
-        val targetFile = File(resolveDirectory(context), fileName)
+        val targetFile = resolveFile(context, fileName.replaceAfterLast('.', safeExtension))
 
         val inputStream = context.contentResolver.openInputStream(sourceUri) ?: return null
+        var totalBytes = 0L
         inputStream.use { input ->
             FileOutputStream(targetFile).use { output ->
-                input.copyTo(output)
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    totalBytes += read
+                    if (totalBytes > MAX_IMAGE_BYTES) {
+                        output.flush()
+                        output.close()
+                        targetFile.delete()
+                        return null
+                    }
+                    output.write(buffer, 0, read)
+                }
             }
         }
 
-        return fileName
+        return targetFile.name
     }
 
     fun deleteIfExists(context: Context, fileName: String?) {
@@ -110,7 +133,7 @@ object PresetImageStorage {
     }
 
     fun loadBitmap(context: Context, fileName: String, targetSizePx: Int): Bitmap? {
-        val file = resolveFile(context, fileName)
+        val file = runCatching { resolveFile(context, fileName) }.getOrNull() ?: return null
         if (!file.exists()) return null
 
         val normalizedTargetSize = targetSizePx.coerceAtLeast(48)
@@ -147,6 +170,14 @@ object PresetImageStorage {
     }
 
     private fun resolveFile(context: Context, fileName: String): File {
-        return File(resolveDirectory(context), fileName)
+        val sanitized = fileName.trim()
+        require(sanitized.matches(SAFE_FILE_NAME_REGEX))
+
+        val dir = resolveDirectory(context)
+        val file = File(dir, sanitized)
+        val dirPath = dir.canonicalPath
+        val filePath = file.canonicalPath
+        require(filePath.startsWith("$dirPath/"))
+        return file
     }
 }

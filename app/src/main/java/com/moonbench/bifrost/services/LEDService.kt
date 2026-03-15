@@ -52,6 +52,11 @@ class LEDService : Service() {
 
     companion object {
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
+        private const val ACTIVITY_CHECK_INTERVAL_MS = 2000L
+        private const val TRANSITION_RETRY_DELAY_MS = 200L
+        private const val TRANSITION_START_DELAY_MS = 100L
+        private const val PROJECTION_RESTART_DELAY_MS = 150L
+        private const val LED_OFF_SETTLE_DELAY_MS = 120L
 
         const val CHANNEL_ID = "LEDServiceChannel"
         const val NOTIFICATION_ID = 4242
@@ -70,6 +75,7 @@ class LEDService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val isTransitioning = AtomicBoolean(false)
     private val isStopping = AtomicBoolean(false)
+    private val mediaProjectionLock = Any()
 
     private var currentColor: Int = Color.WHITE
     private var currentRightColor: Int = Color.WHITE
@@ -94,6 +100,9 @@ class LEDService : Service() {
     private var lastProjectionData: Intent? = null
     private var isDevicePluggedIn: Boolean = false
     private var batteryReceiverRegistered: Boolean = false
+    private var pendingTransitionRunnable: Runnable? = null
+    private var pendingProjectionRunnable: Runnable? = null
+    private var pendingShutdownRunnable: Runnable? = null
 
     private val batteryStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -114,11 +123,13 @@ class LEDService : Service() {
 
     private val activityCheckRunnable = object : Runnable {
         override fun run() {
+            if (!isRunning || isStopping.get()) return
+
             if (!allowBackgroundRun && !isActivityRunning()) {
                 cleanupAndStop()
             } else {
                 checkAutoProfileSwitch()
-                handler.postDelayed(this, 2000)
+                handler.postDelayed(this, ACTIVITY_CHECK_INTERVAL_MS)
             }
         }
     }
@@ -129,7 +140,8 @@ class LEDService : Service() {
         mediaProjectionManager = getSystemService(MediaProjectionManager::class.java)
         ledController = LedController()
         registerBatteryStateReceiver()
-        handler.postDelayed(activityCheckRunnable, 2000)
+        refreshPluggedStateSnapshot()
+        handler.post(activityCheckRunnable)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -209,6 +221,8 @@ class LEDService : Service() {
         currentSmoothness = smoothness
         currentSensitivity = sensitivity
 
+        refreshPluggedStateSnapshot()
+
         restartAnimationForCurrentState(force = true)
 
         return START_NOT_STICKY
@@ -216,7 +230,7 @@ class LEDService : Service() {
 
     private fun handleUpdateParams(intent: Intent) {
         if (!isRunning) return
-        val animation = currentAnimation ?: return
+        val animation = currentAnimation
 
         if (intent.hasExtra("animationColor") || intent.hasExtra("animationRightColor")) {
             val newColor = intent.getIntExtra("animationColor", currentColor)
@@ -234,25 +248,25 @@ class LEDService : Service() {
         if (intent.hasExtra("brightness")) {
             val newBrightness = intent.getIntExtra("brightness", currentBrightness).coerceIn(0, 255)
             currentBrightness = newBrightness
-            animation.setTargetBrightness(currentBrightness)
+            animation?.setTargetBrightness(currentBrightness)
         }
 
         if (intent.hasExtra("speed")) {
             val newSpeed = intent.getFloatExtra("speed", currentSpeed).coerceIn(0f, 1f)
             currentSpeed = newSpeed
-            animation.setSpeed(currentSpeed)
+            animation?.setSpeed(currentSpeed)
         }
 
         if (intent.hasExtra("smoothness")) {
             val newSmoothness = intent.getFloatExtra("smoothness", currentSmoothness).coerceIn(0f, 1f)
             currentSmoothness = newSmoothness
-            animation.setLerpStrength(currentSmoothness)
+            animation?.setLerpStrength(currentSmoothness)
         }
 
         if (intent.hasExtra("sensitivity")) {
             val newSensitivity = intent.getFloatExtra("sensitivity", currentSensitivity).coerceIn(0f, 1f)
             currentSensitivity = newSensitivity
-            animation.setSensitivity(currentSensitivity)
+            animation?.setSensitivity(currentSensitivity)
         }
 
         if (intent.hasExtra("saturationBoost")) {
@@ -286,7 +300,7 @@ class LEDService : Service() {
             )
             if (newBreatheWhenCharging != currentBreatheWhenCharging) {
                 currentBreatheWhenCharging = newBreatheWhenCharging
-                animation.setBreatheWhenCharging(currentBreatheWhenCharging)
+                animation?.setBreatheWhenCharging(currentBreatheWhenCharging)
             }
         }
 
@@ -297,7 +311,7 @@ class LEDService : Service() {
             )
             if (newIndicateChargingSpeed != currentIndicateChargingSpeed) {
                 currentIndicateChargingSpeed = newIndicateChargingSpeed
-                animation.setIndicateChargingSpeed(currentIndicateChargingSpeed)
+                animation?.setIndicateChargingSpeed(currentIndicateChargingSpeed)
             }
         }
 
@@ -308,7 +322,7 @@ class LEDService : Service() {
             )
             if (newFlashWhenReady != currentFlashWhenReady) {
                 currentFlashWhenReady = newFlashWhenReady
-                animation.setFlashWhenReady(currentFlashWhenReady)
+                animation?.setFlashWhenReady(currentFlashWhenReady)
             }
         }
 
@@ -319,6 +333,7 @@ class LEDService : Service() {
             )
             if (newBatteryOverrideWhenPlugged != currentBatteryOverrideWhenPlugged) {
                 currentBatteryOverrideWhenPlugged = newBatteryOverrideWhenPlugged
+                refreshPluggedStateSnapshot()
                 restartAnimationForCurrentState()
                 updateForegroundNotification()
             }
@@ -343,7 +358,8 @@ class LEDService : Service() {
         if (!force && effectiveType == activeAnimationType) return
 
         if (isTransitioning.getAndSet(true)) {
-            handler.postDelayed({
+            pendingTransitionRunnable?.let(handler::removeCallbacks)
+            pendingTransitionRunnable = Runnable {
                 processAnimationChange(
                     effectiveType,
                     currentColor,
@@ -356,7 +372,8 @@ class LEDService : Service() {
                     lastProjectionResultCode,
                     lastProjectionData
                 )
-            }, 200)
+            }
+            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_RETRY_DELAY_MS)
         } else {
             processAnimationChange(
                 effectiveType,
@@ -387,11 +404,14 @@ class LEDService : Service() {
 
     private fun registerBatteryStateReceiver() {
         if (batteryReceiverRegistered) return
-        val stickyIntent = registerReceiver(
-            batteryStateReceiver,
-            IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        )
-        batteryReceiverRegistered = true
+        var stickyIntent: Intent? = null
+        val registered = runCatching {
+            registerReceiver(
+                batteryStateReceiver,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            ).also { stickyIntent = it }
+        }.isSuccess
+        batteryReceiverRegistered = registered
         stickyIntent?.let { updatePluggedState(it) }
     }
 
@@ -409,6 +429,15 @@ class LEDService : Service() {
         return true
     }
 
+    private fun refreshPluggedStateSnapshot() {
+        val stickyIntent = runCatching {
+            registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }.getOrNull()
+        if (stickyIntent != null) {
+            updatePluggedState(stickyIntent)
+        }
+    }
+
     private fun processAnimationChange(
         animationType: LedAnimationType,
         color: Int,
@@ -421,28 +450,34 @@ class LEDService : Service() {
         resultCode: Int,
         data: Intent?
     ) {
+        pendingTransitionRunnable?.let(handler::removeCallbacks)
+        pendingTransitionRunnable = null
+        pendingProjectionRunnable?.let(handler::removeCallbacks)
+        pendingProjectionRunnable = null
+
         stopCurrentAnimation()
 
         if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
-            Handler(Looper.getMainLooper()).postDelayed({
+            pendingTransitionRunnable = Runnable {
                 try {
                     if (isRunning && !isStopping.get()) {
-                        mediaProjection?.stop()
-                        mediaProjection = null
+                        clearMediaProjection()
 
-                        handler.postDelayed({
+                        pendingProjectionRunnable = Runnable {
                             try {
                                 if (isRunning && !isStopping.get()) {
-                                    mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
+                                    replaceMediaProjection(resultCode, data)
                                     startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
                                 cleanupAndStop()
                             } finally {
+                                pendingProjectionRunnable = null
                                 isTransitioning.set(false)
                             }
-                        }, 150)
+                        }
+                        handler.postDelayed(pendingProjectionRunnable!!, PROJECTION_RESTART_DELAY_MS)
                     } else {
                         isTransitioning.set(false)
                     }
@@ -450,28 +485,45 @@ class LEDService : Service() {
                     e.printStackTrace()
                     isTransitioning.set(false)
                     cleanupAndStop()
+                } finally {
+                    pendingTransitionRunnable = null
                 }
-            }, 100)
+            }
+            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_START_DELAY_MS)
         } else {
-            handler.postDelayed({
+            pendingTransitionRunnable = Runnable {
                 if (isRunning && !isStopping.get()) {
                     startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                 }
                 isTransitioning.set(false)
-            }, 100)
+                pendingTransitionRunnable = null
+            }
+            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_START_DELAY_MS)
         }
     }
 
     private fun stopCurrentAnimation() {
         try {
             currentAnimation?.stop()
-            Thread.sleep(100)
-            currentAnimation = null
-            activeAnimationType = null
         } catch (e: Exception) {
             e.printStackTrace()
+        } finally {
             currentAnimation = null
             activeAnimationType = null
+        }
+    }
+
+    private fun clearMediaProjection() {
+        synchronized(mediaProjectionLock) {
+            runCatching { mediaProjection?.stop() }
+            mediaProjection = null
+        }
+    }
+
+    private fun replaceMediaProjection(resultCode: Int, data: Intent) {
+        synchronized(mediaProjectionLock) {
+            runCatching { mediaProjection?.stop() }
+            mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
         }
     }
 
@@ -508,15 +560,17 @@ class LEDService : Service() {
     }
 
     private fun isActivityRunning(): Boolean {
-        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val tasks = activityManager.appTasks
-        for (task in tasks) {
-            val componentName = task.taskInfo.baseActivity
-            if (componentName?.packageName == packageName) {
-                return true
+        return runCatching {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val tasks = activityManager.appTasks
+            for (task in tasks) {
+                val componentName = task.taskInfo.baseActivity
+                if (componentName?.packageName == packageName) {
+                    return@runCatching true
+                }
             }
-        }
-        return false
+            false
+        }.getOrDefault(false)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -529,8 +583,18 @@ class LEDService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(activityCheckRunnable)
+        clearPendingCallbacks()
         unregisterBatteryStateReceiver()
         cleanupAndStop()
+    }
+
+    private fun clearPendingCallbacks() {
+        pendingTransitionRunnable?.let(handler::removeCallbacks)
+        pendingTransitionRunnable = null
+        pendingProjectionRunnable?.let(handler::removeCallbacks)
+        pendingProjectionRunnable = null
+        pendingShutdownRunnable?.let(handler::removeCallbacks)
+        pendingShutdownRunnable = null
     }
 
     private fun cleanupAndStop() {
@@ -538,6 +602,7 @@ class LEDService : Service() {
 
         try {
             handler.removeCallbacks(activityCheckRunnable)
+            clearPendingCallbacks()
             isRunning = false
             allowBackgroundRun = false
             isTransitioning.set(false)
@@ -545,25 +610,29 @@ class LEDService : Service() {
 
             stopCurrentAnimation()
 
-            handler.postDelayed({
+            pendingShutdownRunnable = Runnable {
                 try {
-                    mediaProjection?.stop()
-                    mediaProjection = null
+                    clearMediaProjection()
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
 
                 try {
                     ledController.setLedColor(0, 0, 0, 0, true, true, true, true)
-                    Thread.sleep(200)
-                    ledController.shutdown()
+                    handler.postDelayed({
+                        runCatching { ledController.shutdown() }
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                    }, LED_OFF_SETTLE_DELAY_MS)
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                } finally {
+                    pendingShutdownRunnable = null
                 }
-
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }, 150)
+            }
+            handler.post(pendingShutdownRunnable!!)
         } catch (e: Exception) {
             e.printStackTrace()
             try {
@@ -696,7 +765,7 @@ class LEDService : Service() {
     ): LedAnimation? {
         return when (type) {
             LedAnimationType.AMBILIGHT -> {
-                val projection = mediaProjection ?: return null
+                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbilightAnimation(
                     ledController,
@@ -709,7 +778,7 @@ class LEDService : Service() {
                 )
             }
             LedAnimationType.AUDIO_REACTIVE -> {
-                val projection = mediaProjection ?: return null
+                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AudioReactiveAnimation(
                     ledController,
@@ -721,7 +790,7 @@ class LEDService : Service() {
                 )
             }
             LedAnimationType.AMBIAURORA -> {
-                val projection = mediaProjection ?: return null
+                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbiAuroraAnimation(
                     ledController,

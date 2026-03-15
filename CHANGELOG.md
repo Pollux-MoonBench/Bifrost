@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.7] - 2026-03-15
+### Added
+- Prevent crashes and improve responsiveness across UI and background services.
+
+### Changed
+- Optimized animation sampling and audio processing.
+- Improved transition handling and background activity management.
+- Enabled release build minification and resource shrinking.
+
+### Fixed
+- Various stability improvements and edge-case handling.
+
 ## [1.0.6] - 2026-03-14
 ### Added
 - New **CPU temperature** LED animation (color reacts to thermal readings).

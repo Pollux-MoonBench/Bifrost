@@ -36,7 +36,10 @@ class AudioReactiveAnimation(
     private var updateThread: HandlerThread? = null
     private var updateHandler: Handler? = null
 
+    @Volatile
     private var hasAudioUpdate = false
+
+    @Volatile
     private var pendingIntensity: Float = 0f
 
     private val updateInterval: Long
@@ -88,7 +91,7 @@ class AudioReactiveAnimation(
 
         updateThread = HandlerThread("AudioReactiveUpdate").apply {
             start()
-            priority = Thread.MAX_PRIORITY
+            priority = Thread.NORM_PRIORITY + 1
         }
         updateHandler = Handler(updateThread!!.looper)
         updateHandler?.post(ledUpdateRunnable)
@@ -103,12 +106,14 @@ class AudioReactiveAnimation(
     override fun stop() {
         if (!isRunning) return
         isRunning = false
+        hasAudioUpdate = false
 
         updateHandler?.removeCallbacks(ledUpdateRunnable)
         audioAnalyzer?.stop()
         audioAnalyzer = null
 
         updateThread?.quitSafely()
+        runCatching { updateThread?.join(250) }
         updateThread = null
         updateHandler = null
 

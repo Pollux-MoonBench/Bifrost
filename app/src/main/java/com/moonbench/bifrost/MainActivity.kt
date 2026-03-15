@@ -147,6 +147,8 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
+        private const val EXTRA_DISPLAY_RELAUNCH_ATTEMPT = "display_relaunch_attempt"
+        private const val MAX_DISPLAY_RELAUNCH_ATTEMPTS = 3
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
@@ -181,6 +183,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingPresetArtworkIndex: Int? = null
     private var presetArtworkSheetDialog: BottomSheetDialog? = null
     private var appProfileSyncRunnable: Runnable? = null
+    private var resumeStateSyncRunnable: Runnable? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var presetController: PresetController
@@ -1122,7 +1125,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (!isAppInitialized) return
 
-        mainHandler.postDelayed({
+        resumeStateSyncRunnable?.let(mainHandler::removeCallbacks)
+        resumeStateSyncRunnable = Runnable {
             if (isAwaitingPermissionResult) {
                 if (LEDService.isRunning) serviceToggle.isChecked = true
                 isAwaitingPermissionResult = false
@@ -1132,7 +1136,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             refreshCoverFlowFromPresets()
-        }, 100)
+        }
+        mainHandler.postDelayed(resumeStateSyncRunnable!!, 100)
     }
 
     override fun onBackPressed() {
@@ -1155,7 +1160,10 @@ class MainActivity : AppCompatActivity() {
         settingsOverlay.animate().cancel()
         isSettingsOverlayAnimating = false
         presetArtworkSheetDialog?.dismiss()
+        stopAppProfileSync()
         serviceController.cancelPendingOperations()
+        resumeStateSyncRunnable?.let(mainHandler::removeCallbacks)
+        resumeStateSyncRunnable = null
         coverFlowSnapRunnable?.let(mainHandler::removeCallbacks)
         coverFlowSnapRunnable = null
     }
@@ -1172,7 +1180,10 @@ class MainActivity : AppCompatActivity() {
         settingsOverlay.animate().cancel()
         isSettingsOverlayAnimating = false
         presetArtworkSheetDialog?.dismiss()
+        stopAppProfileSync()
         serviceController.cancelPendingOperations()
+        resumeStateSyncRunnable?.let(mainHandler::removeCallbacks)
+        resumeStateSyncRunnable = null
         coverFlowSnapRunnable?.let(mainHandler::removeCallbacks)
         coverFlowSnapRunnable = null
         rainbowDrawable?.stop()
@@ -1703,6 +1714,7 @@ class MainActivity : AppCompatActivity() {
         thorLaunchBottomSwitch?.isChecked = prefs.getBoolean(PREF_THOR_BOTTOM_SCREEN, false)
         thorLaunchBottomSwitch?.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit().putBoolean(PREF_THOR_BOTTOM_SCREEN, isChecked).apply()
+            mainHandler.post { maybeRelaunchOnCorrectDisplay(ignoreRetryGuard = true) }
         }
 
         thorAmbilightBottomSwitch = findViewById(R.id.thorAmbilightBottomSwitch)
@@ -1723,17 +1735,17 @@ class MainActivity : AppCompatActivity() {
      * screen preference, relaunches the activity on the correct display and returns true.
      * The caller should return immediately when this returns true.
      */
-    private fun maybeRelaunchOnCorrectDisplay(): Boolean {
+    private fun maybeRelaunchOnCorrectDisplay(ignoreRetryGuard: Boolean = false): Boolean {
         if (!DeviceInfo.isAynThor) return false
-        if (intent.getBooleanExtra("display_relaunched", false)) return false
+
+        val attempt = intent.getIntExtra(EXTRA_DISPLAY_RELAUNCH_ATTEMPT, 0)
+        if (!ignoreRetryGuard && attempt >= MAX_DISPLAY_RELAUNCH_ATTEMPTS) return false
 
         val useBottomScreen = prefs.getBoolean(PREF_THOR_BOTTOM_SCREEN, false)
-        val displayManager = getSystemService(DisplayManager::class.java)
         val currentDisplayId = display?.displayId ?: Display.DEFAULT_DISPLAY
 
         val targetDisplayId = if (useBottomScreen) {
-            displayManager.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }?.displayId
-                ?: Display.DEFAULT_DISPLAY
+            getThorSecondaryDisplayId() ?: Display.DEFAULT_DISPLAY
         } else {
             Display.DEFAULT_DISPLAY
         }
@@ -1741,13 +1753,22 @@ class MainActivity : AppCompatActivity() {
         if (currentDisplayId == targetDisplayId) return false
 
         val newIntent = Intent(this, MainActivity::class.java).apply {
-            putExtra("display_relaunched", true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(EXTRA_DISPLAY_RELAUNCH_ATTEMPT, attempt + 1)
         }
         val options = ActivityOptions.makeBasic()
         options.launchDisplayId = targetDisplayId
         startActivity(newIntent, options.toBundle())
         finish()
         return true
+    }
+
+    private fun getThorSecondaryDisplayId(): Int? {
+        val displayManager = getSystemService(DisplayManager::class.java)
+        return displayManager.displays
+            .map { it.displayId }
+            .filter { it != Display.DEFAULT_DISPLAY }
+            .minOrNull()
     }
 
     private fun maybeAutoStartHeimdallOnLaunch() {
@@ -2178,9 +2199,7 @@ class MainActivity : AppCompatActivity() {
     private fun getAmbilightTargetDisplayId(): Int {
         if (!DeviceInfo.isAynThor) return Display.DEFAULT_DISPLAY
         if (!prefs.getBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, false)) return Display.DEFAULT_DISPLAY
-        val dm = getSystemService(DisplayManager::class.java)
-        return dm.displays.firstOrNull { it.displayId != Display.DEFAULT_DISPLAY }?.displayId
-            ?: Display.DEFAULT_DISPLAY
+        return getThorSecondaryDisplayId() ?: Display.DEFAULT_DISPLAY
     }
 
     private fun createLedServiceIntent(): Intent {
