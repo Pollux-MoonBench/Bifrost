@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Process
 import com.moonbench.bifrost.LedPreset
+import com.moonbench.bifrost.PresetIcon
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import org.json.JSONArray
@@ -109,6 +110,13 @@ class AppProfileManager(private val prefs: SharedPreferences) {
             val profile = runCatching {
                 PerformanceProfile.valueOf(obj.optString("performanceProfile", PerformanceProfile.HIGH.name))
             }.getOrDefault(PerformanceProfile.HIGH)
+            val icon = PresetIcon.fromStoredName(
+                obj.optString("icon", PresetIcon.defaultFor(type).name)
+            )
+            val customEmoji = obj.optString("customEmoji")
+                .takeIf { it.isNotBlank() }
+            val customImageFileName = obj.optString("customImageFileName")
+                .takeIf { it.isNotBlank() }
 
             val color = obj.optInt("color", Color.WHITE)
             return LedPreset(
@@ -127,7 +135,10 @@ class AppProfileManager(private val prefs: SharedPreferences) {
                 breatheWhenCharging = obj.optBoolean("breatheWhenCharging", false),
                 indicateChargingSpeed = obj.optBoolean("indicateChargingSpeed", false),
                 flashWhenReady = obj.optBoolean("flashWhenReady", false),
-                ragnarokAccepted = obj.optBoolean("ragnarokAccepted", false)
+                ragnarokAccepted = obj.optBoolean("ragnarokAccepted", false),
+                icon = icon,
+                customEmoji = customEmoji,
+                customImageFileName = customImageFileName
             )
         }
         return null

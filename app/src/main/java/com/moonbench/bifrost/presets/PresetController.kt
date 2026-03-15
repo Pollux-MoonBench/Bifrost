@@ -3,12 +3,18 @@ package com.moonbench.bifrost
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.ImageView
 import android.widget.Spinner
+import android.widget.TextView
+import androidx.annotation.LayoutRes
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.ui.DeletePresetDialog
@@ -51,6 +57,52 @@ class PresetController(
 
     fun getPresets(): List<LedPreset> = presets
 
+    fun applyPresetAt(index: Int, syncSpinner: Boolean = true) {
+        if (index !in presets.indices) return
+
+        selectedIndex = index
+        val preset = presets[index]
+        saveLastPresetName(preset.name)
+
+        markIsUpdatingFromPreset(true)
+        if (syncSpinner && presetSpinner.selectedItemPosition != index) {
+            presetSpinner.setSelection(index)
+        }
+        applyPresetToUi(preset)
+        markIsUpdatingFromPreset(false)
+
+        onPresetApplied()
+    }
+
+    fun movePreset(fromIndex: Int, toIndex: Int): Boolean {
+        if (fromIndex !in presets.indices || toIndex !in presets.indices) return false
+        if (fromIndex == toIndex) return false
+
+        val selectedPresetName = presets.getOrNull(selectedIndex)?.name
+        val movedPreset = presets.removeAt(fromIndex)
+        presets.add(toIndex, movedPreset)
+
+        savePresetsToPrefs()
+        saveLastPresetName(selectedPresetName ?: movedPreset.name)
+        refreshPresetSpinner(selectedPresetName ?: movedPreset.name)
+        return true
+    }
+
+    fun updatePresetVisual(index: Int, transform: (LedPreset) -> LedPreset): LedPreset? {
+        if (index !in presets.indices) return null
+
+        val selectedPresetName = presets.getOrNull(selectedIndex)?.name
+        val updatedPreset = transform(presets[index])
+        replacePreset(
+            index = index,
+            updatedPreset = updatedPreset,
+            applyToUi = false,
+            notifyPresetApplied = false,
+            selectedNameAfterSave = selectedPresetName ?: updatedPreset.name
+        )
+        return updatedPreset
+    }
+
     fun markRagnarokAccepted(name: String?) {
         if (name == null) return
         val index = presets.indexOfFirst { it.name == name }
@@ -76,15 +128,7 @@ class PresetController(
                     id: Long
                 ) {
                     if (isUpdatingFromPreset()) return
-                    if (position !in presets.indices) return
-
-                    selectedIndex = position
-                    val preset = presets[position]
-                    saveLastPresetName(preset.name)
-                    markIsUpdatingFromPreset(true)
-                    applyPresetToUi(preset)
-                    markIsUpdatingFromPreset(false)
-                    onPresetApplied()
+                    applyPresetAt(position, syncSpinner = false)
                 }
 
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
@@ -92,8 +136,14 @@ class PresetController(
     }
 
     private fun refreshPresetSpinner(selectedName: String?) {
-        val adapter = ArrayAdapter(activity, R.layout.item_spinner_bifrost, presets.map { it.name })
-        adapter.setDropDownViewResource(R.layout.item_spinner_dropdown_bifrost)
+        val adapter = IconLabelSpinnerAdapter(
+            activity = activity,
+            items = presets.toList(),
+            itemLayoutRes = R.layout.item_spinner_preset,
+            dropdownLayoutRes = R.layout.item_spinner_preset_dropdown,
+            labelProvider = { it.name },
+            visualProvider = { PresetVisuals.fromPreset(it) }
+        )
         presetSpinner.adapter = adapter
 
         val index = selectedName?.let { name ->
@@ -123,6 +173,13 @@ class PresetController(
             val profile = runCatching {
                 PerformanceProfile.valueOf(obj.optString("performanceProfile", PerformanceProfile.HIGH.name))
             }.getOrDefault(PerformanceProfile.HIGH)
+            val icon = PresetIcon.fromStoredName(
+                obj.optString("icon", PresetIcon.defaultFor(type).name)
+            )
+            val customEmoji = obj.optString("customEmoji")
+                .takeIf { it.isNotBlank() }
+            val customImageFileName = obj.optString("customImageFileName")
+                .takeIf { it.isNotBlank() }
 
             val accepted = obj.optBoolean("ragnarokAccepted", false)
             val useCustomSampling = obj.optBoolean("useCustomSampling", false)
@@ -149,7 +206,10 @@ class PresetController(
                     breatheWhenCharging = breatheWhenCharging,
                     indicateChargingSpeed = indicateChargingSpeed,
                     flashWhenReady = flashWhenReady,
-                    ragnarokAccepted = accepted
+                    ragnarokAccepted = accepted,
+                    icon = icon,
+                    customEmoji = customEmoji,
+                    customImageFileName = customImageFileName
                 )
             )
         }
@@ -178,6 +238,9 @@ class PresetController(
             obj.put("indicateChargingSpeed", preset.indicateChargingSpeed)
             obj.put("flashWhenReady", preset.flashWhenReady)
             obj.put("ragnarokAccepted", preset.ragnarokAccepted)
+            obj.put("icon", preset.icon.name)
+            preset.customEmoji?.let { obj.put("customEmoji", it) }
+            preset.customImageFileName?.let { obj.put("customImageFileName", it) }
             array.put(obj)
         }
 
@@ -209,35 +272,33 @@ class PresetController(
     }
 
     private fun showSaveAsNewPresetDialog() {
-        val inflater = LayoutInflater.from(activity)
-        val view = inflater.inflate(R.layout.dialog_preset_name, null)
-        val input = view.findViewById<TextInputEditText>(R.id.presetNameInput)
-
         val defaultName = "Preset ${presets.size + 1}"
-        input.setText(defaultName)
-        input.setSelection(defaultName.length)
+        val initialIcon = presets.getOrNull(selectedIndex)?.icon
+            ?: PresetIcon.defaultFor(getCurrentConfig().animationType)
 
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(activity)
-            .setView(view)
-            .setPositiveButton("Save") { _, _ ->
+        showPresetEditorDialog(
+            title = "SAVE PRESET",
+            subtitle = "Name this configuration for quick access",
+            positiveButtonLabel = "Save",
+            initialName = defaultName,
+            initialIcon = initialIcon,
+            showNameInput = true
+        ) { rawName, icon ->
                 val base = getCurrentConfig()
-                val raw = input.text?.toString()?.trim().orEmpty()
-                val desired = if (raw.isEmpty()) defaultName else raw
+                val desired = if (rawName.isEmpty()) defaultName else rawName
                 val unique = ensureUniqueName(desired)
                 val newPreset = base.copy(
                     name = unique,
+                    icon = icon,
+                    customEmoji = null,
+                    customImageFileName = null,
                     ragnarokAccepted = base.performanceProfile == PerformanceProfile.RAGNAROK
                 )
                 presets.add(newPreset)
                 savePresetsToPrefs()
                 saveLastPresetName(unique)
                 refreshPresetSpinner(unique)
-            }
-            .setNegativeButton("Cancel", null)
-            .create()
-
-        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-        dialog.show()
+        }
     }
 
     private fun ensureUniqueName(base: String): String {
@@ -254,24 +315,122 @@ class PresetController(
         if (selectedIndex !in presets.indices) return
 
         val current = presets[selectedIndex]
-        val base = getCurrentConfig()
+        showPresetEditorDialog(
+            title = "UPDATE PRESET",
+            subtitle = "Save the current configuration to ${current.name} and choose its icon",
+            positiveButtonLabel = "Update",
+            initialName = current.name,
+            initialIcon = current.icon,
+            showNameInput = false
+        ) { _, icon ->
+            val base = getCurrentConfig()
+            val accepted = current.ragnarokAccepted || base.performanceProfile == PerformanceProfile.RAGNAROK
 
-        val accepted = current.ragnarokAccepted || base.performanceProfile == PerformanceProfile.RAGNAROK
+            val final = base.copy(
+                name = current.name,
+                ragnarokAccepted = accepted,
+                icon = icon,
+                customEmoji = null,
+                customImageFileName = null
+            )
 
-        val final = base.copy(
-            name = current.name,
-            ragnarokAccepted = accepted
-        )
+            replacePreset(
+                index = selectedIndex,
+                updatedPreset = final,
+                applyToUi = true,
+                notifyPresetApplied = true
+            )
+        }
+    }
 
-        presets[selectedIndex] = final
+    private fun replacePreset(
+        index: Int,
+        updatedPreset: LedPreset,
+        applyToUi: Boolean,
+        notifyPresetApplied: Boolean,
+        selectedNameAfterSave: String = updatedPreset.name
+    ) {
+        if (index !in presets.indices) return
+
+        val previousPreset = presets[index]
+        cleanupReplacedImage(previousPreset, updatedPreset)
+
+        presets[index] = updatedPreset
         savePresetsToPrefs()
-        saveLastPresetName(final.name)
+        saveLastPresetName(selectedNameAfterSave)
+        refreshPresetSpinner(selectedNameAfterSave)
 
-        markIsUpdatingFromPreset(true)
-        applyPresetToUi(final)
-        markIsUpdatingFromPreset(false)
+        if (applyToUi) {
+            markIsUpdatingFromPreset(true)
+            applyPresetToUi(updatedPreset)
+            markIsUpdatingFromPreset(false)
+        }
 
-        onPresetApplied()
+        if (notifyPresetApplied) {
+            onPresetApplied()
+        }
+    }
+
+    private fun cleanupReplacedImage(previousPreset: LedPreset, updatedPreset: LedPreset) {
+        val previousFileName = previousPreset.customImageFileName
+        if (!previousFileName.isNullOrBlank() && previousFileName != updatedPreset.customImageFileName) {
+            PresetImageStorage.deleteIfExists(activity, previousFileName)
+        }
+    }
+
+    private fun showPresetEditorDialog(
+        title: String,
+        subtitle: String,
+        positiveButtonLabel: String,
+        initialName: String,
+        initialIcon: PresetIcon,
+        showNameInput: Boolean,
+        onConfirm: (String, PresetIcon) -> Unit
+    ) {
+        val inflater = LayoutInflater.from(activity)
+        val view = inflater.inflate(R.layout.dialog_preset_name, null)
+        val titleView = view.findViewById<TextView>(R.id.dialogTitle)
+        val subtitleView = view.findViewById<TextView>(R.id.dialogSubtitle)
+        val nameInputLayout = view.findViewById<TextInputLayout>(R.id.presetNameInputLayout)
+        val nameInput = view.findViewById<TextInputEditText>(R.id.presetNameInput)
+        val iconSpinner = view.findViewById<Spinner>(R.id.presetIconSpinner)
+        val icons = PresetIcon.values().toList()
+
+        titleView.text = title
+        subtitleView.text = subtitle
+        nameInput.setText(initialName)
+
+        nameInputLayout.visibility = if (showNameInput) View.VISIBLE else View.GONE
+        if (showNameInput) {
+            nameInput.setSelection(initialName.length)
+        }
+
+        iconSpinner.adapter = IconLabelSpinnerAdapter(
+            activity = activity,
+            items = icons,
+            itemLayoutRes = R.layout.item_spinner_preset,
+            dropdownLayoutRes = R.layout.item_spinner_preset_dropdown,
+            labelProvider = { it.label },
+            visualProvider = { PresetVisuals.fromBuiltIn(it) }
+        )
+        iconSpinner.setSelection(icons.indexOf(initialIcon).coerceAtLeast(0), false)
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setView(view)
+            .setPositiveButton(positiveButtonLabel) { _, _ ->
+                val resolvedName = if (showNameInput) {
+                    nameInput.text?.toString()?.trim().orEmpty()
+                } else {
+                    initialName
+                }
+                val resolvedIcon = icons.getOrElse(iconSpinner.selectedItemPosition) { initialIcon }
+                onConfirm(resolvedName, resolvedIcon)
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        dialog.show()
     }
 
     private fun showDeleteDialog() {
@@ -282,6 +441,7 @@ class PresetController(
             activity = activity,
             presetName = preset.name,
             onConfirm = {
+                PresetImageStorage.deleteIfExists(activity, preset.customImageFileName)
                 presets.removeAt(selectedIndex)
                 savePresetsToPrefs()
 
@@ -300,5 +460,45 @@ class PresetController(
                 }
             }
         )
+    }
+}
+
+class IconLabelSpinnerAdapter<T>(
+    activity: AppCompatActivity,
+    private val items: List<T>,
+    @LayoutRes private val itemLayoutRes: Int,
+    @LayoutRes private val dropdownLayoutRes: Int,
+    private val labelProvider: (T) -> CharSequence,
+    private val visualProvider: (T) -> PresetVisualSpec
+) : ArrayAdapter<T>(activity, itemLayoutRes, items) {
+
+    private val inflater = LayoutInflater.from(context)
+
+    override fun getCount(): Int = items.size
+
+    override fun getItem(position: Int): T = items[position]
+
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+        return bindView(position, convertView, parent, itemLayoutRes)
+    }
+
+    override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+        return bindView(position, convertView, parent, dropdownLayoutRes)
+    }
+
+    private fun bindView(position: Int, convertView: View?, parent: ViewGroup, layoutRes: Int): View {
+        val row = convertView ?: inflater.inflate(layoutRes, parent, false)
+        val item = items[position]
+        val text = row.findViewById<TextView>(android.R.id.text1)
+        val icon = row.findViewById<ImageView>(android.R.id.icon)
+        val emoji = row.findViewById<TextView>(R.id.presetIconEmoji)
+        val visual = visualProvider(item)
+
+        text.text = labelProvider(item)
+
+        val iconSize = maxOf(icon.layoutParams?.width ?: 0, icon.layoutParams?.height ?: 0, 20)
+        PresetVisuals.bind(context, visual, icon, emoji, iconSize)
+
+        return row
     }
 }

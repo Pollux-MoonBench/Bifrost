@@ -12,6 +12,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -50,6 +51,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class LEDService : Service() {
 
     companion object {
+        private const val PREF_KEY_LAST_PRESET = "last_preset_name"
+
         const val CHANNEL_ID = "LEDServiceChannel"
         const val NOTIFICATION_ID = 4242
         const val ACTION_STOP = "com.moonbench.bifrost.STOP"
@@ -101,8 +104,11 @@ class LEDService : Service() {
         }
     }
 
+    private val prefs by lazy {
+        getSharedPreferences("bifrost_prefs", MODE_PRIVATE)
+    }
+
     private val appProfileManager by lazy {
-        val prefs = getSharedPreferences("bifrost_prefs", MODE_PRIVATE)
         AppProfileManager(prefs)
     }
 
@@ -143,6 +149,10 @@ class LEDService : Service() {
         }
 
         allowBackgroundRun = intent.getBooleanExtra(EXTRA_ALLOW_BACKGROUND_RUN, allowBackgroundRun)
+        currentBatteryOverrideWhenPlugged = intent.getBooleanExtra(
+            EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
+            currentBatteryOverrideWhenPlugged
+        )
         currentPersistentNotification = intent.getBooleanExtra(
             EXTRA_PERSISTENT_NOTIFICATION,
             currentPersistentNotification
@@ -183,10 +193,6 @@ class LEDService : Service() {
         currentBreatheWhenCharging = intent.getBooleanExtra("breatheWhenCharging", false)
         currentIndicateChargingSpeed = intent.getBooleanExtra("indicateChargingSpeed", false)
         currentFlashWhenReady = intent.getBooleanExtra("flashWhenReady", false)
-        currentBatteryOverrideWhenPlugged = intent.getBooleanExtra(
-            EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
-            currentBatteryOverrideWhenPlugged
-        )
         currentAmbilightDisplayId = intent.getIntExtra("ambilightDisplayId", Display.DEFAULT_DISPLAY)
 
         lastProjectionResultCode = intent.getIntExtra("resultCode", Activity.RESULT_OK)
@@ -314,6 +320,7 @@ class LEDService : Service() {
             if (newBatteryOverrideWhenPlugged != currentBatteryOverrideWhenPlugged) {
                 currentBatteryOverrideWhenPlugged = newBatteryOverrideWhenPlugged
                 restartAnimationForCurrentState()
+                updateForegroundNotification()
             }
         }
 
@@ -398,6 +405,7 @@ class LEDService : Service() {
         val plugged = (intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0)
         if (plugged == isDevicePluggedIn) return false
         isDevicePluggedIn = plugged
+        updateForegroundNotification()
         return true
     }
 
@@ -471,6 +479,9 @@ class LEDService : Service() {
         if (!isRunning || isTransitioning.get() || isStopping.get()) return
 
         val preset = appProfileManager.checkForSwitch(this) ?: return
+
+        // Keep the UI in sync by tracking which preset is active when auto-switch is enabled.
+        prefs.edit().putString(PREF_KEY_LAST_PRESET, preset.name).apply()
 
         // While the plugged-in battery override is active, keep tracking foreground-app
         // changes but do not apply the preset switch until the override is lifted.
@@ -593,15 +604,24 @@ class LEDService : Service() {
             PendingIntent.getActivity(this, 0, mainIntent, PendingIntent.FLAG_IMMUTABLE)
 
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("LED Active")
-            .setContentText("Bifrost is running")
-            .setSubText("Tap this notification to modify settings")
-            .setSmallIcon(R.mipmap.ic_notification_foreground)
+            .setContentTitle("BIFROST is open")
+            .setContentText("Tap to tune")
+            .setSubText(resolveNotificationSubText())
+            .setSmallIcon(R.drawable.ic_notification_small)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher_foreground))
             .setContentIntent(mainPendingIntent)
             .addAction(android.R.drawable.ic_delete, "Stop", stopPendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(currentPersistentNotification)
             .build()
+    }
+
+    private fun resolveNotificationSubText(): String {
+        return if (isDevicePluggedIn && currentBatteryOverrideWhenPlugged) {
+            "Profiles are overridden when charging"
+        } else {
+            "Following profile presets"
+        }
     }
 
     private fun updateForegroundNotification() {

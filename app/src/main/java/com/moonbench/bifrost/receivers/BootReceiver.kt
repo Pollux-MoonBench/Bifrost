@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -67,7 +68,8 @@ class BootReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, STARTUP_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_notification_foreground)
+            .setSmallIcon(R.drawable.ic_notification_small)
+            .setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher_foreground))
             .setContentTitle("Heimdall auto-start skipped")
             .setContentText("Last preset needs screen capture permission. Open Bifrost to start it.")
             .setContentIntent(pendingIntent)
