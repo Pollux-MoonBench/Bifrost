@@ -56,9 +56,14 @@ class ScreenAnalyzer(
     var useCustomSampling: Boolean = false,
     var useSingleColor: Boolean = false,
     var saturationBoost: Float = 0.0f,
-    var topPixelPercentage: Float = 0.3f,
+    initialTopPixelPercentage: Float = 0.3f,
     private val onColorsAnalyzed: (ScreenColors) -> Unit
 ) {
+    var topPixelPercentage: Float = initialTopPixelPercentage
+        set(value) {
+            field = value.coerceIn(0.05f, 1f)
+        }
+
     private var captureWidth = DEFAULT_CAPTURE_WIDTH
     private var captureHeight = DEFAULT_CAPTURE_HEIGHT
     private var lastProcessedTime = 0L
@@ -81,7 +86,9 @@ class ScreenAnalyzer(
         } else if (useCustomSampling) {
             captureWidth = CUSTOM_SAMPLING_WIDTH
             val aspectRatio = displayMetrics.heightPixels.toFloat() / displayMetrics.widthPixels.toFloat()
-            captureHeight = (captureWidth * aspectRatio).toInt().coerceAtLeast(DEFAULT_CAPTURE_HEIGHT)
+            captureHeight = (captureWidth * aspectRatio).toInt()
+                .coerceAtLeast(DEFAULT_CAPTURE_HEIGHT)
+                .coerceAtMost(CUSTOM_SAMPLING_WIDTH)
         } else {
             captureWidth = DEFAULT_CAPTURE_WIDTH
             captureHeight = DEFAULT_CAPTURE_HEIGHT
@@ -194,13 +201,14 @@ class ScreenAnalyzer(
 
     private fun getPixelColor(buffer: ByteBuffer, x: Int, y: Int, rowStride: Int, pixelStride: Int): Int {
         val offset = y * rowStride + x * pixelStride
+        if (offset < 0 || offset + 2 >= buffer.limit()) {
+            return Color.BLACK
+        }
         val r = buffer.get(offset).toInt() and 0xFF
         val g = buffer.get(offset + 1).toInt() and 0xFF
         val b = buffer.get(offset + 2).toInt() and 0xFF
         return Color.rgb(r, g, b)
     }
-
-    private data class WeightedPixel(val r: Int, val g: Int, val b: Int, val weight: Double)
 
     private fun averageRegionTopWeighted(
         buffer: ByteBuffer,
@@ -211,36 +219,69 @@ class ScreenAnalyzer(
         rowStride: Int,
         pixelStride: Int
     ): Int {
-        val pixels = mutableListOf<WeightedPixel>()
+        val pixelCount = ((endX - startX + 1) * (endY - startY + 1)).coerceAtLeast(1)
+        val topCount = (pixelCount * topPixelPercentage).toInt().coerceAtLeast(1)
+
+        val topWeights = DoubleArray(topCount)
+        val topR = IntArray(topCount)
+        val topG = IntArray(topCount)
+        val topB = IntArray(topCount)
+        var selectedCount = 0
 
         for (y in startY..endY) {
             for (x in startX..endX) {
                 val offset = y * rowStride + x * pixelStride
+                if (offset < 0 || offset + 2 >= buffer.limit()) continue
+
                 val r = buffer.get(offset).toInt() and 0xFF
                 val g = buffer.get(offset + 1).toInt() and 0xFF
                 val b = buffer.get(offset + 2).toInt() and 0xFF
 
                 val weight = calculatePixelWeight(r, g, b)
-                pixels.add(WeightedPixel(r, g, b, weight))
+                if (selectedCount < topCount) {
+                    topWeights[selectedCount] = weight
+                    topR[selectedCount] = r
+                    topG[selectedCount] = g
+                    topB[selectedCount] = b
+                    selectedCount++
+                    continue
+                }
+
+                var minIndex = 0
+                var minWeight = topWeights[0]
+                var i = 1
+                while (i < topCount) {
+                    if (topWeights[i] < minWeight) {
+                        minWeight = topWeights[i]
+                        minIndex = i
+                    }
+                    i++
+                }
+
+                if (weight > minWeight) {
+                    topWeights[minIndex] = weight
+                    topR[minIndex] = r
+                    topG[minIndex] = g
+                    topB[minIndex] = b
+                }
             }
         }
 
-        if (pixels.isEmpty()) return Color.BLACK
-
-        pixels.sortByDescending { it.weight }
-        val topCount = (pixels.size * topPixelPercentage).toInt().coerceAtLeast(1)
-        val topPixels = pixels.take(topCount)
+        if (selectedCount == 0) return Color.BLACK
 
         var rAcc = 0.0
         var gAcc = 0.0
         var bAcc = 0.0
         var totalWeight = 0.0
 
-        for (pixel in topPixels) {
-            rAcc += pixel.r * pixel.weight
-            gAcc += pixel.g * pixel.weight
-            bAcc += pixel.b * pixel.weight
-            totalWeight += pixel.weight
+        var i = 0
+        while (i < selectedCount) {
+            val weight = topWeights[i]
+            rAcc += topR[i] * weight
+            gAcc += topG[i] * weight
+            bAcc += topB[i] * weight
+            totalWeight += weight
+            i++
         }
 
         if (totalWeight == 0.0) return Color.BLACK

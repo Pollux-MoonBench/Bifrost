@@ -11,6 +11,7 @@ import android.os.Looper
 import com.moonbench.bifrost.tools.LedController
 import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.PI
 
 class BatteryIndicatorAnimation(
     ledController: LedController,
@@ -31,6 +32,7 @@ class BatteryIndicatorAnimation(
         private const val READY_HUE_END = 132f
         private const val READY_SATURATION = 0.95f
         private const val READY_VALUE = 1.0f
+        private const val PHASE_WRAP = PI * 2
         private val READY_COLOR = Color.HSVToColor(
             floatArrayOf(READY_HUE_START, READY_SATURATION, READY_VALUE)
         )
@@ -87,7 +89,7 @@ class BatteryIndicatorAnimation(
                 val steadyBrightness = calculateReadySteadyBrightness(currentBrightness)
                 applyLeds(currentColor, steadyBrightness)
 
-                breathPhase += READY_BREATH_PHASE_STEP
+                advanceBreathPhase(READY_BREATH_PHASE_STEP)
                 handler.postDelayed(this, adjustedAnimationDelay(16L, steadyBrightness))
             } else if (shouldBreathe()) {
                 val lerpFactor = 0.15f
@@ -97,7 +99,7 @@ class BatteryIndicatorAnimation(
                 val breathBrightness = calculateChargingBreathBrightness(currentBrightness)
                 applyLeds(currentColor, breathBrightness)
 
-                breathPhase += chargingPhaseStep
+                advanceBreathPhase(chargingPhaseStep)
                 handler.postDelayed(this, adjustedAnimationDelay(30L, breathBrightness))
             } else {
                 val lerpFactor = 0.15f
@@ -161,11 +163,20 @@ class BatteryIndicatorAnimation(
         if (isRunning) return
         isRunning = true
 
-        val initialBatteryState = context.registerReceiver(
-            batteryReceiver,
-            IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        )
-        isBatteryReceiverRegistered = true
+        var initialBatteryState: Intent? = null
+        val registered = runCatching {
+            context.registerReceiver(
+                batteryReceiver,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            ).also { initialBatteryState = it }
+        }.isSuccess
+        isBatteryReceiverRegistered = registered
+
+        if (!isBatteryReceiverRegistered) {
+            isRunning = false
+            return
+        }
+
         updateBatteryState(initialBatteryState)
         restartLerpAnimation()
     }
@@ -178,8 +189,18 @@ class BatteryIndicatorAnimation(
             runCatching { context.unregisterReceiver(batteryReceiver) }
             isBatteryReceiverRegistered = false
         }
+        blinkState = false
+        readyStateLatched = false
+        breathPhase = 0.0
         currentBrightness = 0
         applyLeds(Color.BLACK, 0)
+    }
+
+    private fun advanceBreathPhase(step: Double) {
+        breathPhase += step
+        if (breathPhase > PHASE_WRAP || breathPhase < -PHASE_WRAP) {
+            breathPhase %= PHASE_WRAP
+        }
     }
 
     private fun shouldBreathe(): Boolean {
@@ -202,7 +223,7 @@ class BatteryIndicatorAnimation(
             (level * 100 / scale.toFloat()).roundToInt()
         } else {
             100
-        }
+        }.coerceIn(0, 100)
 
         isPluggedIn = (statusIntent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
         batteryStatus = statusIntent?.getIntExtra(

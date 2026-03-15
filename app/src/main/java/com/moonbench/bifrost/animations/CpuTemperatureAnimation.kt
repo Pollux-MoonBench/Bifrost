@@ -13,6 +13,7 @@ class CpuTemperatureAnimation(
 
     companion object {
         private const val UPDATE_INTERVAL_MS = 250L
+        private const val TEMP_READ_INTERVAL_MS = 1000L
         private const val COLOR_LERP_FACTOR = 0.25f
         private const val BRIGHTNESS_LERP_FACTOR = 0.3f
 
@@ -47,12 +48,20 @@ class CpuTemperatureAnimation(
     private var targetColor: Int = TEMP_POINTS.first().color
     private var currentColor: Int = TEMP_POINTS.first().color
     private var lastKnownTemperatureC: Float? = null
+    private var lastTemperatureReadAt: Long = 0L
 
     private val updateRunnable = object : Runnable {
         override fun run() {
             if (!isRunning) return
 
-            val latestTemperatureC = thermalReader.readCpuTemperatureC() ?: lastKnownTemperatureC
+            val now = System.currentTimeMillis()
+            val latestTemperatureC = if (now - lastTemperatureReadAt >= TEMP_READ_INTERVAL_MS) {
+                lastTemperatureReadAt = now
+                thermalReader.readCpuTemperatureC() ?: lastKnownTemperatureC
+            } else {
+                lastKnownTemperatureC
+            }
+
             if (latestTemperatureC != null) {
                 val quantizedTemperature = quantizeToHalfDegree(latestTemperatureC)
                 lastKnownTemperatureC = quantizedTemperature
@@ -149,13 +158,16 @@ private class CpuThermalReader {
         private const val THERMAL_ROOT = "/sys/class/thermal"
         private const val MIN_VALID_TEMP_C = 5f
         private const val MAX_VALID_TEMP_C = 130f
+        private const val MAX_ZONE_SCAN = 24
     }
 
     private var preferredTempFile: File? = null
 
     fun readCpuTemperatureC(): Float? {
         preferredTempFile?.let { cachedTempFile ->
-            parseTemperature(cachedTempFile)?.let { return it }
+            if (cachedTempFile.exists()) {
+                parseTemperature(cachedTempFile)?.let { return it }
+            }
             preferredTempFile = null
         }
 
@@ -168,7 +180,10 @@ private class CpuThermalReader {
         var bestTemp: Float? = null
         var bestTempFile: File? = null
 
+        var scanned = 0
         zones.forEach { zone ->
+            if (scanned >= MAX_ZONE_SCAN) return@forEach
+            scanned++
             val type = zone.resolve("type").safeReadText()?.trim()?.lowercase().orEmpty()
             val tempFile = zone.resolve("temp")
             val temperature = parseTemperature(tempFile) ?: return@forEach
@@ -219,6 +234,8 @@ private class CpuThermalReader {
     }
 
     private fun File.safeReadText(): String? {
-        return runCatching { readText() }.getOrNull()
+        return runCatching {
+            inputStream().bufferedReader().use { it.readLine() }
+        }.getOrNull()
     }
 }
