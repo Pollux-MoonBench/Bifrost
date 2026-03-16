@@ -1,5 +1,6 @@
 package com.moonbench.bifrost.animations
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -8,12 +9,34 @@ import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import com.moonbench.bifrost.tools.LedController
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.PI
 
 class BatteryIndicatorAnimation(
     ledController: LedController,
-    private val context: Context
+    private val context: Context,
+    initialBreatheWhenCharging: Boolean = false,
+    initialIndicateChargingSpeed: Boolean = false,
+    initialFlashWhenReady: Boolean = false
 ) : LedAnimation(ledController) {
+
+    companion object {
+        private const val CHARGING_PULSE_OFFSET = 0.25f
+        private const val CHARGING_PULSE_BRIGHTNESS_THRESHOLD = 0.75f
+        private const val BASE_CHARGING_PHASE_STEP = 0.08
+        private const val READY_BREATH_PHASE_STEP = 0.06
+        private const val READY_MIN_VISIBLE_BRIGHTNESS = 48
+        private const val EXTRA_MAX_CHARGING_CURRENT = "max_charging_current"
+        private const val READY_HUE_START = 210f
+        private const val READY_HUE_END = 132f
+        private const val READY_SATURATION = 0.95f
+        private const val READY_VALUE = 1.0f
+        private const val PHASE_WRAP = PI * 2
+        private val READY_COLOR = Color.HSVToColor(
+            floatArrayOf(READY_HUE_START, READY_SATURATION, READY_VALUE)
+        )
+    }
 
     override val type: LedAnimationType = LedAnimationType.BATTERY_INDICATOR
     override val needsColorSelection: Boolean = false
@@ -24,17 +47,27 @@ class BatteryIndicatorAnimation(
     private var targetBrightness: Int = 255
     private var isBlinking = false
     private var blinkState = false
+    private var isPluggedIn = false
+    private var batteryStatus: Int = BatteryManager.BATTERY_STATUS_UNKNOWN
+    private var batteryPercentage: Int = 100
+    private var breatheWhenCharging = initialBreatheWhenCharging
+    private var indicateChargingSpeed = initialIndicateChargingSpeed
+    private var flashWhenReady = initialFlashWhenReady
+    private var breathPhase = 0.0
+    private var chargingPhaseStep = BASE_CHARGING_PHASE_STEP
+    private var readyStateLatched = false
+    private var isBatteryReceiverRegistered = false
+    private val batteryManager by lazy { context.getSystemService(BatteryManager::class.java) }
 
     @Volatile
     private var isRunning = false
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private val batteryCheckRunnable = object : Runnable {
-        override fun run() {
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
             if (!isRunning) return
-            checkBatteryAndUpdateTarget()
-            handler.postDelayed(this, 60000)
+            updateBatteryState(intent)
         }
     }
 
@@ -47,10 +80,31 @@ class BatteryIndicatorAnimation(
                 val brightness = if (blinkState) targetBrightness else 0
                 applyLeds(targetColor, brightness)
                 handler.postDelayed(this, 500)
+            } else if (shouldReadyBreathe()) {
+                val lerpFactor = 0.11f
+                val readyColor = calculateReadyBreatheColor()
+                currentColor = lerpColor(currentColor, readyColor, lerpFactor)
+                currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, lerpFactor)
+
+                val steadyBrightness = calculateReadySteadyBrightness(currentBrightness)
+                applyLeds(currentColor, steadyBrightness)
+
+                advanceBreathPhase(READY_BREATH_PHASE_STEP)
+                handler.postDelayed(this, adjustedAnimationDelay(16L, steadyBrightness))
+            } else if (shouldBreathe()) {
+                val lerpFactor = 0.15f
+                currentColor = lerpColor(currentColor, targetColor, lerpFactor)
+                currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, lerpFactor)
+
+                val breathBrightness = calculateChargingBreathBrightness(currentBrightness)
+                applyLeds(currentColor, breathBrightness)
+
+                advanceBreathPhase(chargingPhaseStep)
+                handler.postDelayed(this, adjustedAnimationDelay(30L, breathBrightness))
             } else {
                 val lerpFactor = 0.15f
                 currentColor = lerpColor(currentColor, targetColor, lerpFactor)
-                currentBrightness = lerpInt(currentBrightness, targetBrightness, lerpFactor)
+                currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, lerpFactor)
 
                 applyLeds(currentColor, currentBrightness)
 
@@ -58,7 +112,7 @@ class BatteryIndicatorAnimation(
                 val brightnessDiff = kotlin.math.abs(currentBrightness - targetBrightness)
 
                 if (colorDiff > 2 || brightnessDiff > 2) {
-                    handler.postDelayed(this, 16)
+                    handler.postDelayed(this, adjustedAnimationDelay(16L, currentBrightness))
                 } else {
                     currentColor = targetColor
                     currentBrightness = targetBrightness
@@ -75,7 +129,32 @@ class BatteryIndicatorAnimation(
 
     override fun setTargetBrightness(brightness: Int) {
         targetBrightness = brightness.coerceIn(0, 255)
-        if (isRunning && !isBlinking) {
+        if (isRunning) {
+            restartLerpAnimation()
+        }
+    }
+
+    override fun setBreatheWhenCharging(enabled: Boolean) {
+        if (breatheWhenCharging == enabled) return
+        breatheWhenCharging = enabled
+        if (isRunning) {
+            restartLerpAnimation()
+        }
+    }
+
+    override fun setIndicateChargingSpeed(enabled: Boolean) {
+        if (indicateChargingSpeed == enabled) return
+        indicateChargingSpeed = enabled
+        chargingPhaseStep = resolveChargingPhaseStep()
+        if (isRunning) {
+            restartLerpAnimation()
+        }
+    }
+
+    override fun setFlashWhenReady(enabled: Boolean) {
+        if (flashWhenReady == enabled) return
+        flashWhenReady = enabled
+        if (isRunning) {
             restartLerpAnimation()
         }
     }
@@ -83,40 +162,165 @@ class BatteryIndicatorAnimation(
     override fun start() {
         if (isRunning) return
         isRunning = true
-        checkBatteryAndUpdateTarget()
-        handler.post(colorLerpRunnable)
-        handler.postDelayed(batteryCheckRunnable, 60000)
+
+        var initialBatteryState: Intent? = null
+        val registered = runCatching {
+            context.registerReceiver(
+                batteryReceiver,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            ).also { initialBatteryState = it }
+        }.isSuccess
+        isBatteryReceiverRegistered = registered
+
+        if (!isBatteryReceiverRegistered) {
+            isRunning = false
+            return
+        }
+
+        updateBatteryState(initialBatteryState)
+        restartLerpAnimation()
     }
 
     override fun stop() {
         if (!isRunning) return
         isRunning = false
-        handler.removeCallbacks(batteryCheckRunnable)
         handler.removeCallbacks(colorLerpRunnable)
+        if (isBatteryReceiverRegistered) {
+            runCatching { context.unregisterReceiver(batteryReceiver) }
+            isBatteryReceiverRegistered = false
+        }
+        blinkState = false
+        readyStateLatched = false
+        breathPhase = 0.0
         currentBrightness = 0
         applyLeds(Color.BLACK, 0)
     }
 
-    private fun checkBatteryAndUpdateTarget() {
-        val batteryStatus = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+    private fun advanceBreathPhase(step: Double) {
+        breathPhase += step
+        if (breathPhase > PHASE_WRAP || breathPhase < -PHASE_WRAP) {
+            breathPhase %= PHASE_WRAP
+        }
+    }
 
-        val batteryPct = if (level >= 0 && scale > 0) {
+    private fun shouldBreathe(): Boolean {
+        return breatheWhenCharging && isPluggedIn && !isBlinking
+    }
+
+    private fun shouldReadyBreathe(): Boolean {
+        return flashWhenReady && isPluggedIn && readyStateLatched
+    }
+
+    private fun updateBatteryState(statusIntent: Intent?) {
+        val level = statusIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = statusIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val previousTargetColor = targetColor
+        val wasBlinking = isBlinking
+        val wasBreathing = shouldBreathe()
+        val wasReadyBreathing = shouldReadyBreathe()
+
+        batteryPercentage = if (level >= 0 && scale > 0) {
             (level * 100 / scale.toFloat()).roundToInt()
         } else {
             100
+        }.coerceIn(0, 100)
+
+        isPluggedIn = (statusIntent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+        batteryStatus = statusIntent?.getIntExtra(
+            BatteryManager.EXTRA_STATUS,
+            BatteryManager.BATTERY_STATUS_UNKNOWN
+        ) ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+
+        val readyReported =
+            batteryStatus == BatteryManager.BATTERY_STATUS_FULL ||
+                batteryPercentage >= 100 ||
+                (batteryPercentage >= 99 && batteryStatus == BatteryManager.BATTERY_STATUS_NOT_CHARGING)
+
+        readyStateLatched = when {
+            !isPluggedIn -> false
+            readyReported -> true
+            batteryPercentage <= 97 -> false
+            else -> readyStateLatched
         }
 
-        val wasBlinking = isBlinking
-        isBlinking = batteryPct <= 5
+        isBlinking = batteryPercentage <= 5 && !isPluggedIn
+        chargingPhaseStep = resolveChargingPhaseStep(statusIntent)
 
-        targetColor = calculateColorForBattery(batteryPct)
+        targetColor = if (shouldReadyBreathe()) READY_COLOR else calculateColorForBattery(batteryPercentage)
 
-        if (wasBlinking != isBlinking) {
-            handler.removeCallbacks(colorLerpRunnable)
-            handler.post(colorLerpRunnable)
+        val isBehaviorChanged =
+            wasBlinking != isBlinking ||
+                wasBreathing != shouldBreathe() ||
+                wasReadyBreathing != shouldReadyBreathe()
+        val colorChanged = previousTargetColor != targetColor
+
+        if (isRunning && (isBehaviorChanged || colorChanged)) {
+            if (isBehaviorChanged) {
+                blinkState = false
+                breathPhase = 0.0
+            }
+            restartLerpAnimation()
         }
+    }
+
+    private fun calculateChargingBreathBrightness(baseBrightness: Int): Int {
+        val base = baseBrightness.coerceIn(0, 255)
+        val pulseWave = ((1.0 - cos(breathPhase)) / 2.0).toFloat().coerceIn(0f, 1f)
+        val threshold = (255 * CHARGING_PULSE_BRIGHTNESS_THRESHOLD).roundToInt()
+        val offset = (255 * CHARGING_PULSE_OFFSET).roundToInt()
+
+        return if (base >= threshold) {
+            val dimTarget = (base - offset).coerceIn(0, 255)
+            lerpInt(base, dimTarget, pulseWave)
+        } else {
+            val boostTarget = (base + offset).coerceIn(0, 255)
+            lerpInt(base, boostTarget, pulseWave)
+        }
+    }
+
+    private fun calculateReadyBreatheColor(): Int {
+        val pulseWave = ((1.0 - cos(breathPhase)) / 2.0).toFloat().coerceIn(0f, 1f)
+        val smooth = pulseWave * pulseWave * (3f - 2f * pulseWave)
+        val hue = READY_HUE_START + (READY_HUE_END - READY_HUE_START) * smooth
+        return Color.HSVToColor(floatArrayOf(hue, READY_SATURATION, READY_VALUE))
+    }
+
+    private fun calculateReadySteadyBrightness(baseBrightness: Int): Int {
+        return baseBrightness.coerceAtLeast(READY_MIN_VISIBLE_BRIGHTNESS).coerceIn(0, 255)
+    }
+
+    private fun resolveChargingPhaseStep(intent: Intent? = null): Double {
+        if (!indicateChargingSpeed || !isPluggedIn) return BASE_CHARGING_PHASE_STEP
+
+        val chargingCurrentUa = readChargingCurrentMicroAmps(intent)
+        if (chargingCurrentUa != null) {
+            val chargingCurrentMa = (chargingCurrentUa / 1000f).coerceAtLeast(0f)
+            val normalized = ((chargingCurrentMa - 500f) / 2500f).coerceIn(0f, 1f)
+            val multiplier = 0.75f + (normalized * 1.0f)
+            return BASE_CHARGING_PHASE_STEP * multiplier
+        }
+
+        val pluggedState = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+        val multiplier = when {
+            pluggedState and BatteryManager.BATTERY_PLUGGED_AC != 0 -> 1.2f
+            pluggedState and BatteryManager.BATTERY_PLUGGED_USB != 0 -> 0.85f
+            pluggedState and BatteryManager.BATTERY_PLUGGED_WIRELESS != 0 -> 0.9f
+            else -> 1f
+        }
+
+        return BASE_CHARGING_PHASE_STEP * multiplier
+    }
+
+    private fun readChargingCurrentMicroAmps(intent: Intent?): Long? {
+        val currentNow = runCatching {
+            batteryManager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+        }.getOrNull()
+        if (currentNow != null && currentNow != Long.MIN_VALUE && currentNow != 0L) {
+            return kotlin.math.abs(currentNow)
+        }
+
+        val maxChargingCurrent = intent?.getIntExtra(EXTRA_MAX_CHARGING_CURRENT, -1) ?: -1
+        return maxChargingCurrent.takeIf { it > 0 }?.toLong()
     }
 
     private fun calculateColorForBattery(percentage: Int): Int {

@@ -15,6 +15,7 @@ class AudioReactiveAnimation(
     private val mediaProjection: MediaProjection,
     private val displayMetrics: DisplayMetrics,
     private val baseColor: Int,
+    private val baseRightColor: Int = baseColor,
     private val profile: PerformanceProfile
 ) : LedAnimation(ledController) {
 
@@ -35,7 +36,10 @@ class AudioReactiveAnimation(
     private var updateThread: HandlerThread? = null
     private var updateHandler: Handler? = null
 
+    @Volatile
     private var hasAudioUpdate = false
+
+    @Volatile
     private var pendingIntensity: Float = 0f
 
     private val updateInterval: Long
@@ -54,13 +58,13 @@ class AudioReactiveAnimation(
                 smoothedIntensity = lerpFloat(smoothedIntensity, intensity, f)
                 val mapped = mapIntensity(smoothedIntensity)
                 val target = (targetBrightness * mapped).roundToInt()
-                currentBrightness = lerpInt(currentBrightness, target, brightnessLerpFactor())
+                currentBrightness = lerpBrightnessInt(currentBrightness, target, brightnessLerpFactor())
 
                 applyLeds()
             }
 
             if (isRunning) {
-                updateHandler?.postDelayed(this, updateInterval)
+                updateHandler?.postDelayed(this, adjustedAnimationDelay(updateInterval, targetBrightness))
             }
         }
     }
@@ -87,7 +91,7 @@ class AudioReactiveAnimation(
 
         updateThread = HandlerThread("AudioReactiveUpdate").apply {
             start()
-            priority = Thread.MAX_PRIORITY
+            priority = Thread.NORM_PRIORITY + 1
         }
         updateHandler = Handler(updateThread!!.looper)
         updateHandler?.post(ledUpdateRunnable)
@@ -102,12 +106,14 @@ class AudioReactiveAnimation(
     override fun stop() {
         if (!isRunning) return
         isRunning = false
+        hasAudioUpdate = false
 
         updateHandler?.removeCallbacks(ledUpdateRunnable)
         audioAnalyzer?.stop()
         audioAnalyzer = null
 
         updateThread?.quitSafely()
+        runCatching { updateThread?.join(250) }
         updateThread = null
         updateHandler = null
 
@@ -146,18 +152,19 @@ class AudioReactiveAnimation(
         val scale = (currentBrightness / 255f).let {
             if (it < 0.02f) 0f else it * it
         }
-        val red = (Color.red(baseColor) * scale).roundToInt().coerceIn(0, 255)
-        val green = (Color.green(baseColor) * scale).roundToInt().coerceIn(0, 255)
-        val blue = (Color.blue(baseColor) * scale).roundToInt().coerceIn(0, 255)
+        val lr = (Color.red(baseColor) * scale).roundToInt().coerceIn(0, 255)
+        val lg = (Color.green(baseColor) * scale).roundToInt().coerceIn(0, 255)
+        val lb = (Color.blue(baseColor) * scale).roundToInt().coerceIn(0, 255)
 
-        ledController.setLedColor(
-            red,
-            green,
-            blue,
-            leftTop = true,
-            leftBottom = true,
-            rightTop = true,
-            rightBottom = true
-        )
+        val rr = (Color.red(baseRightColor) * scale).roundToInt().coerceIn(0, 255)
+        val rg = (Color.green(baseRightColor) * scale).roundToInt().coerceIn(0, 255)
+        val rb = (Color.blue(baseRightColor) * scale).roundToInt().coerceIn(0, 255)
+
+        ledController.setLedColor(lr, lg, lb,
+            leftTop = true, leftBottom = true,
+            rightTop = false, rightBottom = false)
+        ledController.setLedColor(rr, rg, rb,
+            leftTop = false, leftBottom = false,
+            rightTop = true, rightBottom = true)
     }
 }

@@ -60,7 +60,7 @@ class RainbowAnimation(
             val speedFactor = 0.5f + 4.5f * speed
             hue = (hue + speedFactor) % 360f
 
-            handler.postDelayed(this, 30L)
+            handler.postDelayed(this, adjustedAnimationDelay(30L, targetBrightness))
         }
     }
 

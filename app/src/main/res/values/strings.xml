@@ -21,5 +21,6 @@
     <string name="bifrost_alert_title_placeholder">Title</string>
     <string name="bifrost_alert_subtitle_placeholder">Subtitle</string>
     <string name="bifrost_alert_body_placeholder">Body</string>
+    <string name="settings_gear_symbol">&#x2699;</string>
 
 </resources>

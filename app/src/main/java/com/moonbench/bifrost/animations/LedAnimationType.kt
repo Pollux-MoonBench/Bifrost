@@ -11,6 +11,7 @@ enum class LedAnimationType(
     AUDIO_REACTIVE(true, true, true, true, true),
     AMBIAURORA(true, false, true, true, true),
     BATTERY_INDICATOR(false, false, false, false, false),
+    CPU_TEMPERATURE(false, false, false, false, false),
     STATIC(false, true, false, false, false),
     BREATH(false, true, true, false, false),
     RAINBOW(false, false, true, false, false),

@@ -90,9 +90,9 @@ Bifrost can be installed in two different ways:
 If you use **Obtainium**, you can automatically receive updates:
 
 1. Open the Obtainium app. It can be found here : https://github.com/ImranR98/Obtainium
-2. Add a new app using this source: https://github.com/Pollux-MoonBench/Bifrost/releases/
-3. Follow the Obtainium classic installation process
-
+2. Add a new app using this fork as a source: https://github.com/KuriGohan-Kamehameha/Bifrost/releases/
+   (Optionally, Add using the original source: https://github.com/Pollux-MoonBench/Bifrost/releases/)
+3. Follow the Obtainium installation process
 ------------------------------------------------------------------------
 
 ## 🔒 Required Permissions
@@ -113,9 +113,13 @@ locally and is reduced to minimal pixel data for efficiency.
 
 Bifrost has been tested and confirmed to work on the following devices:
 
-- Retroid Pocket Mini V2
-- Retroid Pocket 5
+AYN
+- Thor
 - Odin 2 Portal Pro
+
+Retroid
+- Pocket Mini V2
+- Pocket 5
 
 ------------------------------------------------------------------------
 
@@ -125,28 +129,43 @@ Bifrost is now **out of beta**, but still actively evolving.
 While overall stability has improved, unexpected behavior may still
 occur on some devices.
 
+Also, this fork is maintained by someone who doesn't understand half 
+the changes they make so keep your expectations low and maybe you'll be pleasantly surprised.
+
+Also also, the maintainer of this fork only cares about their own AYN Thor
+so if you're not using that specific device or something similar you're probably better off using the original version.
+
 ### **Known issues**
 
 - Random crashes under certain conditions
 - Granting notification permission at launch may cause the LED toggle
   switch to appear disabled even though animations continue running
-- On the Retroid Pocket Mini, only the left stick turns on in Ambilight mode. This issue can be solved using the custom color sampler mode. Thank's to r/hupo224 for helping me work on this issue.
+- On the Retroid Pocket Mini, only the left stick turns on in Ambilight mode.
+  This issue can be solved using the custom color sampler mode.
+  (Thanks to r/hupo224 for helping with this issue.)
 
-If you encounter issues, please open a GitHub issue or check the
-existing ones.
+If you encounter issues, please open a GitHub issue or check the existing ones.
 
-------------------------------------------------------------------------
+## 🧬 Fork vs Upstream (what’s different?)
 
-## ☕ Support the Project
+This fork contains enhancements that aren’t (yet) in the upstream Pollux-MoonBench/Bifrost main branch.
 
-If you enjoy Bifrost and want to support development, you can **buy me a
-coffee** here:
+### Key additions
 
-👉 https://ko-fi.com/pollux_moonbench
+- **Auto-start on boot** to keep Bifrost running after device reboot.
+- Individual left/right control -- make each side a distinct colour!
+- Profiles can now be assigned to apps, and will automatically activate when the selected app is in the foreground. 
+- **Improved charging indicator**:
+  - Breathing lights while charging
+  - Charging speed indication
+  - Flash notification when charging completes
+- **New CPU temperature LED animation** (colors shift based on thermal readings).
 
-Thank you! ❤️
+### Project-level differences
 
-------------------------------------------------------------------------
+- Includes a **`CHANGELOG.md`** to track releases and notable changes.
+- Releases include a published **APK asset** (tagged `v1.0.6`).
+- Updated UI layout and animation smoothing tweaks across several animations.
 
 ## 📜 License
 
@@ -155,4 +174,4 @@ This project is licensed under **GPLv3**.
 You are free to use, study, modify, and redistribute the app under the
 terms of the GPLv3 license.\
 This app is provided for free in this repository and **cannot be sold to
-you.**
+you.** You should never have to pay for Bifrost!

@@ -17,34 +17,47 @@ class ServiceController(
     private var isOperationInProgress = false
     private var lastOperationTime = 0L
     private var pendingServiceOperation: Runnable? = null
+    private var operationToken = 0
 
     var onNeedsMediaProjectionCheck: (() -> Unit)? = null
 
     fun cancelPendingOperations() {
         pendingServiceOperation?.let { handler.removeCallbacks(it) }
         pendingServiceOperation = null
+        isOperationInProgress = false
+        isServiceTransitioning = false
+        operationToken++
     }
 
-    fun startDebounced(createIntent: () -> Intent) {
-        if (isOperationInProgress) return
-
+    private fun beginOperationWindow() {
         val now = System.currentTimeMillis()
         if (now - lastOperationTime < debounceDelay) {
             cancelPendingOperations()
         }
-
         lastOperationTime = now
         isOperationInProgress = true
         isServiceTransitioning = true
+        operationToken++
+    }
+
+    private fun finishOperationWindowWithGraceDelay() {
+        isOperationInProgress = false
+        handler.postDelayed({
+            isServiceTransitioning = false
+        }, 200)
+    }
+
+    fun startDebounced(createIntent: () -> Intent) {
+        if (isOperationInProgress) return
+        beginOperationWindow()
+        val token = operationToken
 
         pendingServiceOperation = Runnable {
+            if (token != operationToken) return@Runnable
             try {
                 activity.startService(createIntent())
             } finally {
-                isOperationInProgress = false
-                handler.postDelayed({
-                    isServiceTransitioning = false
-                }, 200)
+                finishOperationWindowWithGraceDelay()
             }
         }
 
@@ -53,24 +66,15 @@ class ServiceController(
 
     fun stopDebounced() {
         if (isOperationInProgress) return
-
-        val now = System.currentTimeMillis()
-        if (now - lastOperationTime < debounceDelay) {
-            cancelPendingOperations()
-        }
-
-        lastOperationTime = now
-        isOperationInProgress = true
-        isServiceTransitioning = true
+        beginOperationWindow()
+        val token = operationToken
 
         pendingServiceOperation = Runnable {
+            if (token != operationToken) return@Runnable
             try {
                 activity.stopService(Intent(activity, LEDService::class.java))
             } finally {
-                isOperationInProgress = false
-                handler.postDelayed({
-                    isServiceTransitioning = false
-                }, 200)
+                finishOperationWindowWithGraceDelay()
             }
         }
 
@@ -84,25 +88,17 @@ class ServiceController(
             onNeedsMediaProjectionCheck?.invoke()
             return
         }
-
-        val now = System.currentTimeMillis()
-        if (now - lastOperationTime < debounceDelay) {
-            cancelPendingOperations()
-        }
-
-        lastOperationTime = now
-        isOperationInProgress = true
-        isServiceTransitioning = true
+        beginOperationWindow()
+        val token = operationToken
 
         pendingServiceOperation = Runnable {
+            if (token != operationToken) return@Runnable
             try {
                 activity.stopService(Intent(activity, LEDService::class.java))
                 handler.postDelayed({
+                    if (token != operationToken) return@postDelayed
                     activity.startService(createIntent())
-                    isOperationInProgress = false
-                    handler.postDelayed({
-                        isServiceTransitioning = false
-                    }, 200)
+                    finishOperationWindowWithGraceDelay()
                 }, restartDelay)
             } catch (e: Exception) {
                 isOperationInProgress = false

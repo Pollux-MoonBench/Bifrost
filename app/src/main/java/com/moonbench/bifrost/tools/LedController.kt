@@ -2,16 +2,21 @@ package com.moonbench.bifrost.tools
 
 import android.os.IBinder
 import android.os.Parcel
+import android.util.Log
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 class LedController {
+    companion object {
+        private const val TAG = "LedController"
+    }
+
     private val pServerBinder: IBinder?
     private val lock = ReentrantLock()
 
     private var lastCommand: String? = null
     private var lastExecuteTime = 0L
-    private val minExecuteInterval = 8L
+    private val minExecuteInterval = 16L
 
     init {
         pServerBinder = try {
@@ -19,6 +24,7 @@ class LedController {
             val getService = serviceManager.getDeclaredMethod("getService", String::class.java)
             getService.invoke(serviceManager, "PServerBinder") as? IBinder
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to get PServerBinder", e)
             null
         }
     }
@@ -33,24 +39,36 @@ class LedController {
         rightTop: Boolean = true,
         rightBottom: Boolean = true
     ) {
-        val commands = mutableListOf<String>()
+        val r = red.coerceIn(0, 255)
+        val g = green.coerceIn(0, 255)
+        val b = blue.coerceIn(0, 255)
+        val br = brightness.coerceIn(0, 255)
+        if (pServerBinder == null) return
+
+        val commandBuilder = StringBuilder(220)
 
         if (leftTop) {
-            commands.add("echo 1-$red:$green:$blue:$brightness > /sys/class/sn3112l/led/brightness")
+            commandBuilder.append("echo 1-").append(r).append(':').append(g).append(':').append(b).append(':').append(br)
+                .append(" > /sys/class/sn3112l/led/brightness")
         }
         if (leftBottom) {
-            commands.add("echo 2-$red:$green:$blue:$brightness > /sys/class/sn3112l/led/brightness")
+            if (commandBuilder.isNotEmpty()) commandBuilder.append(" && ")
+            commandBuilder.append("echo 2-").append(r).append(':').append(g).append(':').append(b).append(':').append(br)
+                .append(" > /sys/class/sn3112l/led/brightness")
         }
         if (rightTop) {
-            commands.add("echo 1-$red:$green:$blue:$brightness > /sys/class/sn3112r/led/brightness")
+            if (commandBuilder.isNotEmpty()) commandBuilder.append(" && ")
+            commandBuilder.append("echo 1-").append(r).append(':').append(g).append(':').append(b).append(':').append(br)
+                .append(" > /sys/class/sn3112r/led/brightness")
         }
         if (rightBottom) {
-            commands.add("echo 2-$red:$green:$blue:$brightness > /sys/class/sn3112r/led/brightness")
+            if (commandBuilder.isNotEmpty()) commandBuilder.append(" && ")
+            commandBuilder.append("echo 2-").append(r).append(':').append(g).append(':').append(b).append(':').append(br)
+                .append(" > /sys/class/sn3112r/led/brightness")
         }
 
-        if (commands.isNotEmpty()) {
-            val command = commands.joinToString(" && ")
-            executeCommandDirect(command)
+        if (commandBuilder.isNotEmpty()) {
+            executeCommandDirect(commandBuilder.toString())
         }
     }
 
@@ -85,7 +103,7 @@ class LedController {
                     data.writeStringArray(arrayOf(command, "1"))
                     binder.transact(0, data, reply, IBinder.FLAG_ONEWAY)
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.w(TAG, "LED transact failed", e)
                 } finally {
                     data.recycle()
                     reply.recycle()
