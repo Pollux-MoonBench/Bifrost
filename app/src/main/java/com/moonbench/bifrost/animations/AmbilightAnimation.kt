@@ -31,6 +31,9 @@ class AmbilightAnimation(
     private var currentBrightness: Int = 255
     private var response: Float = 0.5f
     private var saturationBoost: Float = initialSaturationBoost
+    private var lastLedUpdateAt = 0L
+    private var lastLeftLedColor = Color.TRANSPARENT
+    private var lastRightLedColor = Color.TRANSPARENT
 
     override fun setTargetBrightness(brightness: Int) {
         targetBrightness = brightness.coerceIn(0, 255)
@@ -81,6 +84,9 @@ class AmbilightAnimation(
     }
 
     private fun updateColors(colors: ScreenColors) {
+        val now = System.currentTimeMillis()
+        if (now - lastLedUpdateAt < 16L) return
+
         val leftTarget = if (isColorBlack(colors.leftColor)) {
             Color.BLACK
         } else {
@@ -105,7 +111,7 @@ class AmbilightAnimation(
             lerpColor(currentRightColor, rightTarget, colorLerpFactor())
         }
 
-        currentBrightness = lerpInt(currentBrightness, targetBrightness, brightnessLerpFactor())
+        currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, brightnessLerpFactor())
 
         val gammaCorrectedBrightness = applyGamma(currentBrightness)
         val scale = gammaCorrectedBrightness / 255f
@@ -117,6 +123,15 @@ class AmbilightAnimation(
         val rightRed = (Color.red(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
         val rightGreen = (Color.green(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
         val rightBlue = (Color.blue(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
+
+        val newLeftLedColor = Color.rgb(leftRed, leftGreen, leftBlue)
+        val newRightLedColor = Color.rgb(rightRed, rightGreen, rightBlue)
+        if (newLeftLedColor == lastLeftLedColor && newRightLedColor == lastRightLedColor) {
+            return
+        }
+        lastLeftLedColor = newLeftLedColor
+        lastRightLedColor = newRightLedColor
+        lastLedUpdateAt = now
 
         ledController.setLedColor(
             leftRed,

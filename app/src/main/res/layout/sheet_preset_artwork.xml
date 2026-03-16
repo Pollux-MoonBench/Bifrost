@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="true"
+    android:overScrollMode="ifContentScrolls"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/bifrost_card"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="18dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="24dp">
+
+    <TextView
+        android:id="@+id/presetArtworkTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="CUSTOMIZE PRESET"
+        android:textColor="@color/bifrost_text"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.08" />
+
+    <TextView
+        android:id="@+id/presetArtworkSubtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Pick a built-in icon, paste an emoji, or upload an image."
+        android:textColor="@color/bifrost_text_secondary"
+        android:textSize="11sp"
+        android:letterSpacing="0.04"
+        android:visibility="gone" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        app:cardBackgroundColor="@color/bifrost_surface"
+        app:cardCornerRadius="18dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/bifrost_accent"
+        app:strokeWidth="1dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_glow_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="16dp">
+
+            <FrameLayout
+                android:layout_width="88dp"
+                android:layout_height="88dp"
+                android:background="@drawable/color_preview_bg"
+                android:foregroundGravity="center">
+
+                <ImageView
+                    android:id="@+id/presetArtworkPreviewImage"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter" />
+
+                <TextView
+                    android:id="@+id/presetArtworkPreviewEmoji"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:textColor="@color/bifrost_text"
+                    android:textSize="42sp"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/presetArtworkPreviewName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/bifrost_text"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/presetArtworkPreviewLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="@color/bifrost_text_secondary"
+                    android:textSize="10sp"
+                    android:letterSpacing="0.08"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/presetArtworkUploadButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/bifrost_surface"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="UPLOAD IMAGE"
+            android:textColor="@color/bifrost_text"
+            android:textSize="10sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/bifrost_accent"
+            app:strokeWidth="1dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/presetArtworkResetButton"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:backgroundTint="@color/bifrost_surface"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="USE SAVED ICON"
+            android:textColor="@color/bifrost_text"
+            android:textSize="10sp"
+            android:visibility="gone"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/bifrost_accent"
+            app:strokeWidth="1dp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:text="Built-in icons"
+        android:textColor="@color/bifrost_text_secondary"
+        android:textSize="11sp"
+        android:letterSpacing="0.05"
+        android:visibility="gone" />
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:overScrollMode="never"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/presetArtworkIconOptions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:text="Custom emoji"
+        android:textColor="@color/bifrost_text_secondary"
+        android:textSize="11sp"
+        android:letterSpacing="0.05"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/presetArtworkEmojiInputLayout"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Emoji or symbol"
+            app:boxBackgroundMode="outline"
+            app:boxStrokeColor="@color/bifrost_accent"
+            app:hintTextColor="@color/bifrost_text_secondary">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/presetArtworkEmojiInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textColor="@color/bifrost_text"
+                android:textColorHint="@color/bifrost_text_secondary"
+                android:textSize="14sp" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/presetArtworkApplyEmojiButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="10dp"
+            android:backgroundTint="@color/bifrost_surface"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="APPLY"
+            android:textColor="@color/bifrost_text"
+            android:textSize="11sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/bifrost_accent"
+            app:strokeWidth="1dp" />
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/presetArtworkCloseButton"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="10dp"
+        android:backgroundTint="@color/bifrost_surface"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:text="DONE"
+        android:textColor="@color/bifrost_text"
+        android:textSize="10sp"
+        app:cornerRadius="12dp"
+        app:strokeColor="@color/bifrost_accent"
+        app:strokeWidth="1dp" />
+
+    </LinearLayout>
+
+</androidx.core.widget.NestedScrollView>

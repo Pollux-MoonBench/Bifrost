@@ -44,9 +44,16 @@ class AmbiAuroraAnimation(
     private var updateThread: HandlerThread? = null
     private var updateHandler: Handler? = null
 
+    @Volatile
     private var hasColorUpdate = false
+
+    @Volatile
     private var hasAudioUpdate = false
+
+    @Volatile
     private var pendingColors: ScreenColors? = null
+
+    @Volatile
     private var pendingIntensity: Float = 0f
 
     private val updateInterval: Long
@@ -74,7 +81,7 @@ class AmbiAuroraAnimation(
                 smoothedIntensity = lerpFloat(smoothedIntensity, intensity, f)
                 val mapped = mapIntensity(smoothedIntensity)
                 val target = (targetBrightness * mapped).roundToInt()
-                currentBrightness = lerpInt(currentBrightness, target, brightnessLerpFactor())
+                currentBrightness = lerpBrightnessInt(currentBrightness, target, brightnessLerpFactor())
                 needsLedUpdate = true
             }
 
@@ -83,7 +90,7 @@ class AmbiAuroraAnimation(
             }
 
             if (isRunning) {
-                updateHandler?.postDelayed(this, updateInterval)
+                updateHandler?.postDelayed(this, adjustedAnimationDelay(updateInterval, targetBrightness))
             }
         }
     }
@@ -115,7 +122,7 @@ class AmbiAuroraAnimation(
 
         updateThread = HandlerThread("AmbiAuroraUpdate").apply {
             start()
-            priority = Thread.MAX_PRIORITY
+            priority = Thread.NORM_PRIORITY + 1
         }
         updateHandler = Handler(updateThread!!.looper)
 
@@ -144,6 +151,8 @@ class AmbiAuroraAnimation(
     override fun stop() {
         if (!isRunning) return
         isRunning = false
+        hasColorUpdate = false
+        hasAudioUpdate = false
 
         updateHandler?.removeCallbacks(combinedUpdateRunnable)
         screenAnalyzer?.stop()
@@ -152,6 +161,7 @@ class AmbiAuroraAnimation(
         audioAnalyzer = null
 
         updateThread?.quitSafely()
+        runCatching { updateThread?.join(250) }
         updateThread = null
         updateHandler = null
 

@@ -39,6 +39,7 @@
             android:layout_marginBottom="16dp" />
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/presetNameInputLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Preset name"
@@ -54,6 +55,26 @@
                 android:textColorHint="@color/bifrost_text_secondary"
                 android:textSize="13sp" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp"
+            android:text="Preset icon"
+            android:textColor="@color/bifrost_text_secondary"
+            android:textSize="11sp"
+            android:letterSpacing="0.05" />
+
+        <Spinner
+            android:id="@+id/presetIconSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/bifrost_spinner_modern"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
 
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
