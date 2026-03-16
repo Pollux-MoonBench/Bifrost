@@ -5,10 +5,10 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.ActivityOptions
-import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.ColorDrawable
 import android.hardware.display.DisplayManager
 import android.media.projection.MediaProjectionManager
@@ -27,6 +27,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.BaseAdapter
@@ -42,6 +43,7 @@ import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -85,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var savePresetButton: MaterialButton
     private lateinit var modifyPresetButton: MaterialButton
     private lateinit var deletePresetButton: MaterialButton
+    private lateinit var customizePresetArtworkButton: MaterialButton
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
     private lateinit var brightnessSeekBar: SeekBar
@@ -112,7 +115,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var activePresetStatusBadge: TextView
     private lateinit var activePresetAnimationText: TextView
     private lateinit var activePresetProfileText: TextView
-    private lateinit var homePresetHintText: TextView
     private lateinit var modeCard: MaterialCardView
     private lateinit var colorCard: MaterialCardView
     private lateinit var animationCard: MaterialCardView
@@ -135,6 +137,7 @@ class MainActivity : AppCompatActivity() {
         private const val SETTINGS_HOME_DIM_ALPHA = 0.84f
         private const val COVER_FLOW_TILE_SIZE_DP = 176
         private const val COVER_FLOW_TILE_GAP_DP = 10
+        private const val COVER_FLOW_CREATE_TAG = -1
         private const val APP_PROFILE_SYNC_INTERVAL_MS = 1200L
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
 
@@ -318,7 +321,6 @@ class MainActivity : AppCompatActivity() {
         activePresetStatusBadge = findViewById(R.id.activePresetStatusBadge)
         activePresetAnimationText = findViewById(R.id.activePresetAnimationText)
         activePresetProfileText = findViewById(R.id.activePresetProfileText)
-        homePresetHintText = findViewById(R.id.homePresetHintText)
 
         serviceToggle = findViewById(R.id.serviceToggle)
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
@@ -330,6 +332,7 @@ class MainActivity : AppCompatActivity() {
         savePresetButton = findViewById(R.id.savePresetButton)
         modifyPresetButton = findViewById(R.id.modifyPresetButton)
         deletePresetButton = findViewById(R.id.deletePresetButton)
+        customizePresetArtworkButton = findViewById(R.id.customizePresetArtworkButton)
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
         brightnessSeekBar = findViewById(R.id.brightnessSeekBar)
@@ -366,6 +369,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupHomeSurface()
+        setupBackNavigationHandler()
         setupAnimationSpinner()
         setupProfileSpinner()
         setupColorButton()
@@ -399,6 +403,9 @@ class MainActivity : AppCompatActivity() {
             enableRainbowBackground(isChecked)
 
             if (isChecked) {
+                if (!LEDService.isRunning) {
+                    playBifrostHeaderAnimation()
+                }
                 handleStartWithCurrentSelection()
             } else {
                 serviceController.stopDebounced()
@@ -410,9 +417,30 @@ class MainActivity : AppCompatActivity() {
         isAppInitialized = true
     }
 
+    private fun setupBackNavigationHandler() {
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (::settingsOverlay.isInitialized && settingsOverlay.visibility == View.VISIBLE) {
+                        requestCloseSettingsOverlay()
+                        return
+                    }
+
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        )
+    }
+
     private fun setupHomeSurface() {
         homeSettingsButton.setOnClickListener { openSettingsOverlay() }
-        closeSettingsButton.setOnClickListener { closeSettingsOverlay() }
+        closeSettingsButton.setOnClickListener { requestCloseSettingsOverlay() }
+        customizePresetArtworkButton.setOnClickListener {
+            openSelectedPresetArtworkEditor(it)
+        }
 
         presetCoverFlowScroll.setOnTouchListener { _, event ->
             if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
@@ -493,6 +521,48 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
+    private fun promptCloseSettingsWithSaveChoice() {
+        val dialog = BifrostAlertDialog()
+        dialog.show(
+            activity = this,
+            title = getString(R.string.settings_close_confirm_title),
+            subtitle = getString(R.string.settings_close_confirm_subtitle),
+            body = null,
+            positiveLabelResId = R.string.action_save,
+            negativeLabelResId = R.string.action_dont_save,
+            cancelable = true,
+            onConfirm = {
+                presetController.saveCurrentConfigToSelectedPreset()
+                closeSettingsOverlay()
+            },
+            onCancel = {
+                closeSettingsOverlay()
+            }
+        )
+    }
+
+    private fun requestCloseSettingsOverlay() {
+        if (!::presetController.isInitialized || !presetController.hasUnsavedChangesForSelectedPreset()) {
+            closeSettingsOverlay()
+            return
+        }
+        promptCloseSettingsWithSaveChoice()
+    }
+
+    private fun openSelectedPresetArtworkEditor(anchor: View) {
+        if (!::presetController.isInitialized) return
+        val presets = presetController.getPresets()
+        if (presets.isEmpty()) return
+
+        val selectedIndex = presetSpinner.selectedItemPosition
+        if (selectedIndex !in presets.indices) {
+            Toast.makeText(this, "Select a preset first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        showPresetArtworkMenu(anchor, selectedIndex)
+    }
+
     private fun startAppProfileSync() {
         if (!::presetController.isInitialized) return
         stopAppProfileSync()
@@ -537,15 +607,39 @@ class MainActivity : AppCompatActivity() {
         val tileGapPx = dpToPx(COVER_FLOW_TILE_GAP_DP)
         if (presets.isEmpty()) {
             presetCoverFlowContainer.removeAllViews()
+            presetCoverFlowContainer.addView(createCreatePresetActionCard(tileSizePx, tileGapPx))
             activePresetNameText.text = "No presets"
             activePresetAnimationText.text = "Animation: -"
             activePresetProfileText.text = "Profile: -"
             selectedCoverFlowIndex = 0
+
+            presetCoverFlowScroll.post {
+                val sidePadding = ((presetCoverFlowScroll.width - tileSizePx) / 2).coerceAtLeast(dpToPx(12))
+                presetCoverFlowContainer.setPadding(sidePadding, 0, sidePadding, 0)
+                centerPresetCard(0, animate = false)
+                updateCoverFlowCardTransforms()
+            }
+
+            updateManualPresetSwitchingUi(appProfileManager.isEnabled)
             return
         }
 
         presetCoverFlowContainer.removeAllViews()
         presets.forEachIndexed { index, preset ->
+            var longPressTriggered = false
+            var longPressRunnable: Runnable? = null
+            val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+            var downX = 0f
+            var downY = 0f
+
+            val triggerCardLongPress: () -> Unit = {
+                if (!isCoverFlowDragging) {
+                    suppressNextCoverFlowSnap = true
+                    selectPresetFromCoverFlow(index, animate = true, applyPreset = false)
+                    openSettingsOverlay()
+                }
+            }
+
             val card = MaterialCardView(this).apply {
                 tag = index
                 val layoutParams = LinearLayout.LayoutParams(tileSizePx, tileSizePx).apply {
@@ -564,10 +658,47 @@ class MainActivity : AppCompatActivity() {
                     selectPresetFromCoverFlow(index, animate = true)
                 }
                 setOnLongClickListener {
-                    if (autoSwitchEnabled) return@setOnLongClickListener true
-                    if (isCoverFlowDragging) return@setOnLongClickListener true
-                    suppressNextCoverFlowSnap = true
-                    showPresetArtworkMenu(it, index)
+                    triggerCardLongPress()
+                    true
+                }
+                setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            longPressTriggered = false
+                            downX = event.x
+                            downY = event.y
+                            longPressRunnable?.let(mainHandler::removeCallbacks)
+                            longPressRunnable = Runnable {
+                                if (!longPressTriggered) {
+                                    triggerCardLongPress()
+                                    longPressTriggered = true
+                                }
+                            }
+                            mainHandler.postDelayed(
+                                longPressRunnable!!,
+                                ViewConfiguration.getLongPressTimeout().toLong()
+                            )
+                        }
+
+                        MotionEvent.ACTION_MOVE -> {
+                            val movedTooMuch = abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop
+                            if (movedTooMuch) {
+                                longPressRunnable?.let(mainHandler::removeCallbacks)
+                                longPressRunnable = null
+                            }
+                        }
+
+                        MotionEvent.ACTION_UP,
+                        MotionEvent.ACTION_CANCEL -> {
+                            longPressRunnable?.let(mainHandler::removeCallbacks)
+                            longPressRunnable = null
+                            if (event.actionMasked == MotionEvent.ACTION_UP && longPressTriggered) {
+                                // Consume ACTION_UP after long press to avoid triggering the tap handler.
+                                return@setOnTouchListener true
+                            }
+                        }
+                    }
+                    false
                 }
                 setOnDragListener { dragTarget, event ->
                     if (autoSwitchEnabled) return@setOnDragListener true
@@ -618,6 +749,10 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(10))
                 background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_glow_bg)
+                isLongClickable = true
+                setOnLongClickListener {
+                    card.performLongClick()
+                }
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -636,26 +771,6 @@ class MainActivity : AppCompatActivity() {
                 textSize = 16f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 maxLines = 1
-            }
-
-            val dragHandle = TextView(this).apply {
-                text = "\u2261"
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    gravity = android.view.Gravity.END
-                }
-                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_text_secondary))
-                textSize = 18f
-                contentDescription = "Drag to reorder"
-                setOnLongClickListener {
-                    if (autoSwitchEnabled) return@setOnLongClickListener true
-                    suppressNextCoverFlowSnap = true
-                    val dragData = ClipData.newPlainText("preset-index", index.toString())
-                    it.startDragAndDrop(dragData, View.DragShadowBuilder(card), index, 0)
-                    true
-                }
             }
 
             val centerIconContainer = LinearLayout(this).apply {
@@ -689,11 +804,13 @@ class MainActivity : AppCompatActivity() {
             centerIconContainer.addView(emojiView)
             centerIconContainer.addView(drawableIconView)
             content.addView(name)
-            content.addView(dragHandle)
             content.addView(centerIconContainer)
             card.addView(content)
             presetCoverFlowContainer.addView(card)
         }
+
+        // Keep a persistent trailing action tile to create a new preset from the home flow.
+        presetCoverFlowContainer.addView(createCreatePresetActionCard(tileSizePx, tileGapPx))
 
         selectedCoverFlowIndex = if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
             val lastPresetName = prefs.getString(PREF_KEY_LAST_PRESET, null)
@@ -717,6 +834,88 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateManualPresetSwitchingUi(appProfileManager.isEnabled)
+    }
+
+    private fun createCreatePresetActionCard(tileSizePx: Int, tileGapPx: Int): MaterialCardView {
+        val card = MaterialCardView(this).apply {
+            tag = COVER_FLOW_CREATE_TAG
+            layoutParams = LinearLayout.LayoutParams(tileSizePx, tileSizePx).apply {
+                marginEnd = tileGapPx
+            }
+            radius = dpToPx(16).toFloat()
+            cardElevation = 0f
+            setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_card))
+            setStrokeColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_accent))
+            strokeWidth = dpToPx(1)
+            setOnClickListener {
+                if (::appProfileManager.isInitialized && appProfileManager.isEnabled) return@setOnClickListener
+                launchCreatePresetFromCoverFlow()
+            }
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_glow_bg)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12))
+        }
+
+        val plusBubble = TextView(this).apply {
+            text = "+"
+            gravity = android.view.Gravity.CENTER
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_text))
+            textSize = 34f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_surface))
+                setStroke(dpToPx(2), ContextCompat.getColor(this@MainActivity, R.color.bifrost_accent))
+            }
+            layoutParams = LinearLayout.LayoutParams(dpToPx(88), dpToPx(88))
+            contentDescription = "Create new preset"
+        }
+
+        val label = TextView(this).apply {
+            text = "NEW PRESET"
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_text_secondary))
+            textSize = 11f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            letterSpacing = 0.06f
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dpToPx(12)
+            }
+        }
+
+        content.addView(plusBubble)
+        content.addView(label)
+        card.addView(content)
+        return card
+    }
+
+    private fun launchCreatePresetFromCoverFlow() {
+        if (!::presetController.isInitialized) return
+
+        if (settingsOverlay.visibility != View.VISIBLE) {
+            openSettingsOverlay()
+        }
+
+        val triggerCreatePreset: () -> Unit = {
+            if (settingsOverlay.visibility == View.VISIBLE) {
+                presetController.showSaveAsNewPresetDialogFromHomePlus()
+            }
+        }
+
+        if (isSettingsOverlayAnimating) {
+            mainHandler.postDelayed(triggerCreatePreset, SETTINGS_OPEN_DURATION_MS + 40L)
+        } else {
+            mainHandler.post(triggerCreatePreset)
+        }
     }
 
     private fun selectPresetFromCoverFlow(index: Int, animate: Boolean, applyPreset: Boolean = true) {
@@ -743,6 +942,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun snapCoverFlowToNearestPreset() {
         if (presetCoverFlowContainer.childCount == 0) return
+        val presetCount = presetController.getPresets().size
+        if (presetCount <= 0) return
 
         val centerX = presetCoverFlowScroll.scrollX + (presetCoverFlowScroll.width / 2f)
         var nearestIndex = 0
@@ -750,6 +951,7 @@ class MainActivity : AppCompatActivity() {
 
         for (index in 0 until presetCoverFlowContainer.childCount) {
             val card = presetCoverFlowContainer.getChildAt(index) ?: continue
+            if (!isPresetCardIndex(index, presetCount)) continue
             val cardCenterX = card.left + (card.width / 2f)
             val distance = abs(centerX - cardCenterX)
             if (distance < nearestDistance) {
@@ -784,6 +986,14 @@ class MainActivity : AppCompatActivity() {
         if (scrollWidth <= 0) {
             for (index in 0 until presetCoverFlowContainer.childCount) {
                 val card = presetCoverFlowContainer.getChildAt(index) as? MaterialCardView ?: continue
+                if (isCreatePresetCard(card)) {
+                    card.scaleX = 1f
+                    card.scaleY = 1f
+                    card.alpha = if (autoSwitchEnabled) 0.5f else 0.88f
+                    card.strokeWidth = dpToPx(1)
+                    card.setStrokeColor(accentColor)
+                    continue
+                }
                 val isSelected = index == selectedCoverFlowIndex
                 card.scaleX = 1f
                 card.scaleY = 1f
@@ -801,6 +1011,18 @@ class MainActivity : AppCompatActivity() {
 
         for (index in 0 until presetCoverFlowContainer.childCount) {
             val card = presetCoverFlowContainer.getChildAt(index) as? MaterialCardView ?: continue
+            if (isCreatePresetCard(card)) {
+                val cardCenterX = card.left + (card.width / 2f)
+                val distance = abs(centerX - cardCenterX)
+                val normalizedDistance = (distance / (scrollWidth * 0.9f)).coerceIn(0f, 1f)
+                val scale = 1f - (0.12f * normalizedDistance)
+                card.scaleX = scale
+                card.scaleY = scale
+                card.alpha = if (autoSwitchEnabled) 0.46f else 0.78f + (0.2f * (1f - normalizedDistance))
+                card.strokeWidth = dpToPx(1)
+                card.setStrokeColor(accentColor)
+                continue
+            }
             val cardCenterX = card.left + (card.width / 2f)
             val distance = abs(centerX - cardCenterX)
             val normalizedDistance = (distance / (scrollWidth * 0.9f)).coerceIn(0f, 1f)
@@ -824,6 +1046,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun isPresetCardIndex(index: Int, presetCount: Int): Boolean {
+        return index in 0 until presetCount
+    }
+
+    private fun isCreatePresetCard(view: View): Boolean {
+        return (view.tag as? Int) == COVER_FLOW_CREATE_TAG
+    }
+
     private fun syncAppProfileSwitches(isChecked: Boolean) {
         isSyncingAppProfileSwitches = true
         appProfileSwitch.isChecked = isChecked
@@ -839,11 +1069,6 @@ class MainActivity : AppCompatActivity() {
         presetCoverFlowScroll.alpha = if (autoSwitchEnabled) 0.95f else 1f
         presetSpinner.isEnabled = true
         presetSpinner.alpha = 1f
-        homePresetHintText.text = if (!autoSwitchEnabled) {
-            "Swipe or tap a card to load a preset instantly. Long-press a card to change its art."
-        } else {
-            "App-based switching is on. Preset tiles are locked until you turn it off."
-        }
 
         if (autoSwitchEnabled) {
             startAppProfileSync()
@@ -1140,13 +1365,6 @@ class MainActivity : AppCompatActivity() {
         mainHandler.postDelayed(resumeStateSyncRunnable!!, 100)
     }
 
-    override fun onBackPressed() {
-        if (::settingsOverlay.isInitialized && settingsOverlay.visibility == View.VISIBLE) {
-            closeSettingsOverlay()
-            return
-        }
-        super.onBackPressed()
-    }
 
     override fun onPause() {
         super.onPause()
@@ -1194,10 +1412,7 @@ class MainActivity : AppCompatActivity() {
         bifrostTitleLabel = bifrostTitleText.text.toString()
         if (bifrostTitleLabel.isBlank()) return
 
-        bifrostLogoView.setOnClickListener { playBifrostHeaderAnimation() }
-        bifrostTitleText.setOnClickListener { playBifrostHeaderAnimation() }
         resetBifrostHeaderAnimationState()
-        playBifrostHeaderAnimation()
     }
 
     private fun applyRainbowTitlePhase(text: String, phaseDegrees: Float) {
@@ -1297,7 +1512,8 @@ class MainActivity : AppCompatActivity() {
     private fun resetBifrostHeaderAnimationState() {
         if (bifrostTitleLabel.isBlank()) return
 
-        applyWatercolorTitlePhase(bifrostTitleLabel, 18f)
+        bifrostTitleText.text = bifrostTitleLabel
+        bifrostTitleText.setTextColor(ContextCompat.getColor(this, R.color.bifrost_text))
         bifrostLogoView.rotation = 0f
         bifrostLogoView.scaleX = 1f
         bifrostLogoView.scaleY = 1f
@@ -1310,6 +1526,7 @@ class MainActivity : AppCompatActivity() {
         if (bifrostTitleLabel.isBlank()) return
 
         headerSettleAnimator?.cancel()
+        headerSettleAnimator = null
 
         bifrostLogoView.animate()
             .rotation(0f)
@@ -1319,26 +1536,10 @@ class MainActivity : AppCompatActivity() {
             .alpha(1f)
             .setDuration(400L)
             .setInterpolator(DecelerateInterpolator())
-            .withEndAction { bifrostLogoView.clearColorFilter() }
-            .start()
-
-        val rainbowColors = getRainbowColors(bifrostTitleLabel, 720f)
-        val watercolorColors = getWatercolorColors(bifrostTitleLabel, 18f)
-
-        headerSettleAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 400L
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { animator ->
-                val t = animator.animatedValue as Float
-                applyBlendedTitleColors(rainbowColors, watercolorColors, t)
+            .withEndAction {
+                resetBifrostHeaderAnimationState()
             }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    applyWatercolorTitlePhase(bifrostTitleLabel, 18f)
-                }
-            })
-            start()
-        }
+            .start()
     }
 
     private fun getRainbowColors(text: String, phaseDegrees: Float): IntArray {
@@ -2006,6 +2207,9 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 refreshCoverFlowFromPresets()
+            },
+            onRequestCustomPresetImage = { index ->
+                launchPresetImagePicker(index)
             }
         )
 

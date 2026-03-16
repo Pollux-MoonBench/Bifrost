@@ -7,6 +7,8 @@
 
     <string name="action_delete">Delete</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_dont_save">Do not save</string>
 
     <string name="ragnarok_warning_title">RAGNAROK MODE</string>
     <string name="ragnarok_warning_subtitle">This mode disables all throttling and may cause system instability or freezes with screen capture animations.</string>
@@ -22,5 +24,7 @@
     <string name="bifrost_alert_subtitle_placeholder">Subtitle</string>
     <string name="bifrost_alert_body_placeholder">Body</string>
     <string name="settings_gear_symbol">&#x2699;</string>
+    <string name="settings_close_confirm_title">Save changes?</string>
+    <string name="settings_close_confirm_subtitle">Do you want to save the current values to the selected preset before closing?</string>
 
 </resources>

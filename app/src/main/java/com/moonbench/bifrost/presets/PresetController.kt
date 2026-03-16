@@ -32,7 +32,8 @@ class PresetController(
     private val applyPresetToUi: (LedPreset) -> Unit,
     private val markIsUpdatingFromPreset: (Boolean) -> Unit,
     private val isUpdatingFromPreset: () -> Boolean,
-    private val onPresetApplied: () -> Unit
+    private val onPresetApplied: () -> Unit,
+    private val onRequestCustomPresetImage: (Int) -> Unit
 ) {
 
     companion object {
@@ -43,6 +44,11 @@ class PresetController(
     private val presets: MutableList<LedPreset> = mutableListOf()
     private var selectedIndex: Int = 0
     private val deleteDialog = DeletePresetDialog()
+
+    private enum class CreatePresetDialogMode {
+        DEFAULT,
+        HOME_PLUS
+    }
 
     fun init(initialConfig: LedPreset): LedPreset {
         presets.clear()
@@ -110,6 +116,53 @@ class PresetController(
         val p = presets[index]
         presets[index] = p.copy(ragnarokAccepted = true)
         savePresetsToPrefs()
+    }
+
+    fun saveCurrentConfigToSelectedPreset(): Boolean {
+        if (selectedIndex !in presets.indices) return false
+
+        val current = presets[selectedIndex]
+        val base = getCurrentConfig()
+        val accepted = current.ragnarokAccepted || base.performanceProfile == PerformanceProfile.RAGNAROK
+
+        val updated = base.copy(
+            name = current.name,
+            ragnarokAccepted = accepted,
+            icon = current.icon,
+            customEmoji = current.customEmoji,
+            customImageFileName = current.customImageFileName
+        )
+
+        replacePreset(
+            index = selectedIndex,
+            updatedPreset = updated,
+            applyToUi = false,
+            notifyPresetApplied = false,
+            selectedNameAfterSave = current.name
+        )
+        return true
+    }
+
+    fun hasUnsavedChangesForSelectedPreset(): Boolean {
+        if (selectedIndex !in presets.indices) return false
+
+        val selectedPreset = presets[selectedIndex]
+        val current = getCurrentConfig()
+
+        return current.animationType != selectedPreset.animationType ||
+            current.performanceProfile != selectedPreset.performanceProfile ||
+            current.color != selectedPreset.color ||
+            current.rightColor != selectedPreset.rightColor ||
+            current.brightness != selectedPreset.brightness ||
+            current.speed != selectedPreset.speed ||
+            current.smoothness != selectedPreset.smoothness ||
+            current.sensitivity != selectedPreset.sensitivity ||
+            current.saturationBoost != selectedPreset.saturationBoost ||
+            current.useCustomSampling != selectedPreset.useCustomSampling ||
+            current.useSingleColor != selectedPreset.useSingleColor ||
+            current.breatheWhenCharging != selectedPreset.breatheWhenCharging ||
+            current.indicateChargingSpeed != selectedPreset.indicateChargingSpeed ||
+            current.flashWhenReady != selectedPreset.flashWhenReady
     }
 
     private fun setupPresetControls(initialPreset: LedPreset) {
@@ -271,34 +324,67 @@ class PresetController(
         return first
     }
 
-    private fun showSaveAsNewPresetDialog() {
+    fun showSaveAsNewPresetDialogFromHomePlus() {
+        showSaveAsNewPresetDialog(mode = CreatePresetDialogMode.HOME_PLUS)
+    }
+
+    private fun showSaveAsNewPresetDialog(mode: CreatePresetDialogMode = CreatePresetDialogMode.DEFAULT) {
         val defaultName = "Preset ${presets.size + 1}"
         val initialIcon = presets.getOrNull(selectedIndex)?.icon
             ?: PresetIcon.defaultFor(getCurrentConfig().animationType)
 
+        val title = if (mode == CreatePresetDialogMode.HOME_PLUS) {
+            "NEW PRESET"
+        } else {
+            "SAVE PRESET"
+        }
+
         showPresetEditorDialog(
-            title = "SAVE PRESET",
+            title = title,
             subtitle = "Name this configuration for quick access",
             positiveButtonLabel = "Save",
             initialName = defaultName,
             initialIcon = initialIcon,
-            showNameInput = true
-        ) { rawName, icon ->
-                val base = getCurrentConfig()
-                val desired = if (rawName.isEmpty()) defaultName else rawName
-                val unique = ensureUniqueName(desired)
-                val newPreset = base.copy(
-                    name = unique,
+            showNameInput = true,
+            showCustomImageOption = mode == CreatePresetDialogMode.HOME_PLUS,
+            onConfirm = { rawName, icon ->
+                createPresetFromInputs(
+                    rawName = rawName,
                     icon = icon,
-                    customEmoji = null,
-                    customImageFileName = null,
-                    ragnarokAccepted = base.performanceProfile == PerformanceProfile.RAGNAROK
+                    defaultName = defaultName
                 )
-                presets.add(newPreset)
-                savePresetsToPrefs()
-                saveLastPresetName(unique)
-                refreshPresetSpinner(unique)
-        }
+            },
+            onConfirmWithCustomImage = { rawName, icon ->
+                val newIndex = createPresetFromInputs(
+                    rawName = rawName,
+                    icon = icon,
+                    defaultName = defaultName
+                )
+                if (newIndex >= 0) {
+                    onRequestCustomPresetImage(newIndex)
+                }
+            }
+        )
+    }
+
+    private fun createPresetFromInputs(rawName: String, icon: PresetIcon, defaultName: String): Int {
+        val base = getCurrentConfig()
+        val desired = if (rawName.isEmpty()) defaultName else rawName
+        val unique = ensureUniqueName(desired)
+        val newPreset = base.copy(
+            name = unique,
+            icon = icon,
+            customEmoji = null,
+            customImageFileName = null,
+            ragnarokAccepted = base.performanceProfile == PerformanceProfile.RAGNAROK
+        )
+
+        presets.add(newPreset)
+        val newIndex = presets.lastIndex
+        savePresetsToPrefs()
+        saveLastPresetName(unique)
+        refreshPresetSpinner(unique)
+        return newIndex
     }
 
     private fun ensureUniqueName(base: String): String {
@@ -385,6 +471,8 @@ class PresetController(
         initialName: String,
         initialIcon: PresetIcon,
         showNameInput: Boolean,
+        showCustomImageOption: Boolean = false,
+        onConfirmWithCustomImage: ((String, PresetIcon) -> Unit)? = null,
         onConfirm: (String, PresetIcon) -> Unit
     ) {
         val inflater = LayoutInflater.from(activity)
@@ -394,6 +482,7 @@ class PresetController(
         val nameInputLayout = view.findViewById<TextInputLayout>(R.id.presetNameInputLayout)
         val nameInput = view.findViewById<TextInputEditText>(R.id.presetNameInput)
         val iconSpinner = view.findViewById<Spinner>(R.id.presetIconSpinner)
+        val customImageButton = view.findViewById<MaterialButton>(R.id.presetCustomImageButton)
         val icons = PresetIcon.values().toList()
 
         titleView.text = title
@@ -414,6 +503,7 @@ class PresetController(
             visualProvider = { PresetVisuals.fromBuiltIn(it) }
         )
         iconSpinner.setSelection(icons.indexOf(initialIcon).coerceAtLeast(0), false)
+        customImageButton.visibility = if (showCustomImageOption) View.VISIBLE else View.GONE
 
         val dialog = androidx.appcompat.app.AlertDialog.Builder(activity)
             .setView(view)
@@ -430,6 +520,20 @@ class PresetController(
             .create()
 
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+
+        if (showCustomImageOption && onConfirmWithCustomImage != null) {
+            customImageButton.setOnClickListener {
+                val resolvedName = if (showNameInput) {
+                    nameInput.text?.toString()?.trim().orEmpty()
+                } else {
+                    initialName
+                }
+                val resolvedIcon = icons.getOrElse(iconSpinner.selectedItemPosition) { initialIcon }
+                dialog.dismiss()
+                onConfirmWithCustomImage.invoke(resolvedName, resolvedIcon)
+            }
+        }
+
         dialog.show()
     }
 
