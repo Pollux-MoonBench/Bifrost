@@ -76,5 +76,21 @@
             android:paddingTop="8dp"
             android:paddingBottom="8dp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/presetCustomImageButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Use custom image"
+            android:textAllCaps="false"
+            android:textColor="@color/bifrost_text"
+            android:visibility="gone"
+            app:icon="@android:drawable/ic_menu_gallery"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:iconTint="@color/bifrost_text"
+            app:strokeColor="@color/bifrost_accent"
+            app:strokeWidth="1dp" />
+
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

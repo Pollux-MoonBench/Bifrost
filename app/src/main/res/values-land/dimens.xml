@@ -5,4 +5,7 @@
     <dimen name="bifrost_header_control_gap">6dp</dimen>
     <dimen name="bifrost_spacing_md">10dp</dimen>
     <dimen name="bifrost_card_padding">12dp</dimen>
+    <dimen name="bifrost_cover_flow_min_height">100dp</dimen>
+    <dimen name="bifrost_active_preset_title_size">18sp</dimen>
+    <dimen name="bifrost_active_preset_meta_size">11sp</dimen>
 </resources>
