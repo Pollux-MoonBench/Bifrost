@@ -383,7 +383,6 @@ class MainActivity : AppCompatActivity() {
         setupBreatheWhenChargingSwitch()
         setupChargingSpeedIndicatorSwitch()
         setupFlashWhenReadySwitch()
-        setupRainbowTitleText()
         appProfileManager = AppProfileManager(prefs)
         setupAppProfileFeature()
         setupAutoStartupSwitch()
@@ -1408,13 +1407,6 @@ class MainActivity : AppCompatActivity() {
         rainbowDrawable = null
     }
 
-    private fun setupRainbowTitleText() {
-        bifrostTitleLabel = bifrostTitleText.text.toString()
-        if (bifrostTitleLabel.isBlank()) return
-
-        resetBifrostHeaderAnimationState()
-    }
-
     private fun applyRainbowTitlePhase(text: String, phaseDegrees: Float) {
         val rainbowText = SpannableString(text)
         val maxIndex = (text.length - 1).coerceAtLeast(1)
@@ -1433,34 +1425,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         bifrostTitleText.text = rainbowText
-    }
-
-    private fun applyWatercolorTitlePhase(text: String, phaseDegrees: Float) {
-        val watercolorText = SpannableString(text)
-        val maxIndex = (text.length - 1).coerceAtLeast(1)
-
-        text.indices.forEach { index ->
-            if (text[index].isWhitespace()) return@forEach
-
-            val letterProgress = index / maxIndex.toFloat()
-            val hue = (phaseDegrees + 300f * letterProgress + 10f * sin(letterProgress * PI).toFloat()) % 360f
-            val saturation = (0.28f + 0.14f * ((sin(letterProgress * PI * 3.0) + 1.0) / 2.0).toFloat())
-                .coerceIn(0f, 1f)
-            val value = (0.92f + 0.08f * ((cos(letterProgress * PI * 2.0) + 1.0) / 2.0).toFloat())
-                .coerceIn(0f, 1f)
-            val alpha = (224 + 31 * ((sin(letterProgress * PI * 2.5) + 1.0) / 2.0)).roundToInt()
-                .coerceIn(0, 255)
-            val color = Color.HSVToColor(alpha, floatArrayOf(hue, saturation, value))
-
-            watercolorText.setSpan(
-                ForegroundColorSpan(color),
-                index,
-                index + 1,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-
-        bifrostTitleText.text = watercolorText
     }
 
     private fun playBifrostHeaderAnimation() {
@@ -1540,63 +1504,6 @@ class MainActivity : AppCompatActivity() {
                 resetBifrostHeaderAnimationState()
             }
             .start()
-    }
-
-    private fun getRainbowColors(text: String, phaseDegrees: Float): IntArray {
-        val colors = IntArray(text.length)
-        val maxIndex = (text.length - 1).coerceAtLeast(1)
-        text.indices.forEach { index ->
-            if (text[index].isWhitespace()) {
-                colors[index] = Color.TRANSPARENT
-            } else {
-                val hue = (phaseDegrees + (360f * index / maxIndex)) % 360f
-                colors[index] = Color.HSVToColor(floatArrayOf(hue, 0.82f, 1f))
-            }
-        }
-        return colors
-    }
-
-    private fun getWatercolorColors(text: String, phaseDegrees: Float): IntArray {
-        val colors = IntArray(text.length)
-        val maxIndex = (text.length - 1).coerceAtLeast(1)
-        text.indices.forEach { index ->
-            if (text[index].isWhitespace()) {
-                colors[index] = Color.TRANSPARENT
-            } else {
-                val letterProgress = index / maxIndex.toFloat()
-                val hue = (phaseDegrees + 300f * letterProgress + 10f * sin(letterProgress * PI).toFloat()) % 360f
-                val saturation = (0.28f + 0.14f * ((sin(letterProgress * PI * 3.0) + 1.0) / 2.0).toFloat())
-                    .coerceIn(0f, 1f)
-                val value = (0.92f + 0.08f * ((cos(letterProgress * PI * 2.0) + 1.0) / 2.0).toFloat())
-                    .coerceIn(0f, 1f)
-                val alpha = (224 + 31 * ((sin(letterProgress * PI * 2.5) + 1.0) / 2.0)).roundToInt()
-                    .coerceIn(0, 255)
-                colors[index] = Color.HSVToColor(alpha, floatArrayOf(hue, saturation, value))
-            }
-        }
-        return colors
-    }
-
-    private fun applyBlendedTitleColors(startColors: IntArray, endColors: IntArray, t: Float) {
-        val rainbowText = SpannableString(bifrostTitleLabel)
-        val blend = t.coerceIn(0f, 1f)
-        val maxIndex = (bifrostTitleLabel.length - 1).coerceAtLeast(1)
-
-        bifrostTitleLabel.indices.forEach { index ->
-            if (bifrostTitleLabel[index].isWhitespace()) return@forEach
-            val blended = androidx.core.graphics.ColorUtils.blendARGB(
-                startColors.getOrNull(index) ?: Color.WHITE,
-                endColors.getOrNull(index) ?: Color.WHITE,
-                blend
-            )
-            rainbowText.setSpan(
-                ForegroundColorSpan(blended),
-                index,
-                index + 1,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        bifrostTitleText.text = rainbowText
     }
 
     private fun setupAnimationSpinner() {
