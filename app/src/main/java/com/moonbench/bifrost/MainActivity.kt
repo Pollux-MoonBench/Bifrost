@@ -2641,5 +2641,6 @@ class MainActivity : AppCompatActivity() {
             }
             .sortedBy { it.appName.lowercase() }
             .toList()
+    }
 }
 

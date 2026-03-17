@@ -3,6 +3,7 @@ package com.moonbench.bifrost.services
 import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Process
@@ -25,6 +26,7 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         private const val PREF_KEY_AUTO_SWITCH_ENABLED = "auto_switch_enabled"
         private const val FOREGROUND_QUERY_WINDOW_MS = 5000L
         private const val FOREGROUND_QUERY_CACHE_MS = 1500L
+        private const val HOME_PACKAGES_CACHE_MS = 10_000L
     }
 
     @Volatile
@@ -35,6 +37,8 @@ class AppProfileManager(private val prefs: SharedPreferences) {
     private var cachedMappings: Map<String, String> = emptyMap()
     private var lastForegroundQueryAt: Long = 0L
     private var cachedForegroundPackage: String? = null
+    private var lastHomePackagesQueryAt: Long = 0L
+    private var cachedHomePackages: Set<String> = emptySet()
 
     var isEnabled: Boolean
         get() = prefs.getBoolean(PREF_KEY_AUTO_SWITCH_ENABLED, false)
@@ -115,7 +119,10 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         }.getOrNull()
 
         lastForegroundQueryAt = now
-        if (stats.isNullOrEmpty()) return null
+        if (stats.isNullOrEmpty()) {
+            cachedForegroundPackage = null
+            return null
+        }
         val latest = stats.maxByOrNull { it.lastTimeUsed }?.packageName
         cachedForegroundPackage = latest
         return latest
@@ -127,13 +134,21 @@ class AppProfileManager(private val prefs: SharedPreferences) {
      */
     fun checkForSwitch(context: Context): SwitchResult? {
         if (!isEnabled) return null
+        if (!hasUsageStatsPermission(context)) return null
 
-        val currentPackage = getForegroundPackage(context) ?: return null
+        val currentPackage = getForegroundPackage(context)
         lastForegroundPackage = currentPackage
 
         val mappings = getMappings()
         val fallbackPresetName = resolveDefaultPresetName()
-        val presetName = if (currentPackage == context.packageName) {
+
+        // Returning to launcher/home (or transiently no detected foreground package)
+        // should resolve to the app-profile fallback instead of keeping the old app preset.
+        val shouldUseFallback = currentPackage.isNullOrBlank() ||
+            currentPackage == context.packageName ||
+            isHomePackage(context, currentPackage)
+
+        val presetName = if (shouldUseFallback) {
             fallbackPresetName
         } else {
             mappings[currentPackage] ?: fallbackPresetName
@@ -151,6 +166,22 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         lastResolvedPresetName = null
         cachedForegroundPackage = null
         lastForegroundQueryAt = 0L
+        lastHomePackagesQueryAt = 0L
+        cachedHomePackages = emptySet()
+    }
+
+    private fun isHomePackage(context: Context, packageName: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastHomePackagesQueryAt >= HOME_PACKAGES_CACHE_MS || cachedHomePackages.isEmpty()) {
+            val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            cachedHomePackages = runCatching {
+                context.packageManager.queryIntentActivities(homeIntent, 0)
+                    .mapNotNull { it.activityInfo?.packageName }
+                    .toSet()
+            }.getOrDefault(emptySet())
+            lastHomePackagesQueryAt = now
+        }
+        return packageName in cachedHomePackages
     }
 
     private fun resolveDefaultPresetName(): String? {
