@@ -125,6 +125,20 @@ class PresetController(
         onPresetApplied()
     }
 
+    fun selectPresetForEditing(index: Int, syncSpinner: Boolean = true) {
+        if (index !in presets.indices) return
+
+        selectedIndex = index
+        val preset = presets[index]
+
+        markIsUpdatingFromPreset(true)
+        if (syncSpinner && presetSpinner.selectedItemPosition != index) {
+            presetSpinner.setSelection(index)
+        }
+        applyPresetToUi(preset)
+        markIsUpdatingFromPreset(false)
+    }
+
     fun movePreset(fromIndex: Int, toIndex: Int): Boolean {
         if (fromIndex !in presets.indices || toIndex !in presets.indices) return false
         if (fromIndex == toIndex) return false

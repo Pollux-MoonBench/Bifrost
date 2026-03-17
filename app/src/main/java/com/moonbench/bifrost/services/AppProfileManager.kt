@@ -1,6 +1,7 @@
 package com.moonbench.bifrost.services
 
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -24,8 +25,8 @@ class AppProfileManager(private val prefs: SharedPreferences) {
     companion object {
         private const val PREF_KEY_MAPPINGS = "app_profile_mappings"
         private const val PREF_KEY_AUTO_SWITCH_ENABLED = "auto_switch_enabled"
-        private const val FOREGROUND_QUERY_WINDOW_MS = 5000L
-        private const val FOREGROUND_QUERY_CACHE_MS = 1500L
+        private const val FOREGROUND_QUERY_WINDOW_MS = 2500L
+        private const val FOREGROUND_QUERY_CACHE_MS = 350L
         private const val HOME_PACKAGES_CACHE_MS = 10_000L
     }
 
@@ -110,6 +111,15 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         }
 
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+
+        // UsageEvents is typically more reactive than aggregated UsageStats.
+        val latestFromEvents = resolveForegroundFromEvents(usm, now)
+        if (!latestFromEvents.isNullOrBlank()) {
+            lastForegroundQueryAt = now
+            cachedForegroundPackage = latestFromEvents
+            return latestFromEvents
+        }
+
         val stats = runCatching {
             usm.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
@@ -126,6 +136,35 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         val latest = stats.maxByOrNull { it.lastTimeUsed }?.packageName
         cachedForegroundPackage = latest
         return latest
+    }
+
+    private fun resolveForegroundFromEvents(
+        usageStatsManager: UsageStatsManager,
+        now: Long
+    ): String? {
+        val events = runCatching {
+            usageStatsManager.queryEvents(now - FOREGROUND_QUERY_WINDOW_MS, now)
+        }.getOrNull() ?: return null
+
+        val event = UsageEvents.Event()
+        var latestPackage: String? = null
+        var latestTimestamp = 0L
+
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val isForegroundEvent =
+                event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND ||
+                    event.eventType == UsageEvents.Event.ACTIVITY_RESUMED
+            if (!isForegroundEvent) continue
+
+            val packageName = event.packageName ?: continue
+            if (event.timeStamp >= latestTimestamp) {
+                latestTimestamp = event.timeStamp
+                latestPackage = packageName
+            }
+        }
+
+        return latestPackage
     }
 
     /**

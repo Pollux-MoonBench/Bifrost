@@ -26,5 +26,8 @@
     <string name="settings_gear_symbol">&#x2699;</string>
     <string name="settings_close_confirm_title">Save changes?</string>
     <string name="settings_close_confirm_subtitle">Do you want to save the current values to the selected preset before closing?</string>
+    <string name="app_profile_info_title">APP PROFILE MODE</string>
+    <string name="app_profile_info_subtitle">Animations now switch automatically based on the foreground app.</string>
+    <string name="app_profile_info_body">In this mode, swiping presets will not change the running animation. Assign apps to presets in settings to control what plays automatically.</string>
 
 </resources>
