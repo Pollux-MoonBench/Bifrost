@@ -82,11 +82,15 @@ Recent updates introduce several new capabilities.
 ## Auto Start
 
 - **Auto-start on boot** so Bifrost resumes automatically after device reboot.
+- If auto-start is skipped because MediaProjection permission is required, Bifrost shows a notification to reopen the app and request the permission.
 
 ## App-based Profiles
 
 - Profiles can be **assigned to specific apps**
 - Bifrost automatically switches profiles depending on the **foreground application**
+- Optional **fallback preset** when no mapped app is in the foreground
+- First-use popup to explain app mode behavior
+- Immediate app-profile resolution when app mode is enabled
 
 ## Independent LED Control
 
@@ -104,6 +108,35 @@ Improved LED feedback while charging:
 ## CPU Temperature Animation
 
 A new animation that changes LED colors based on **CPU temperature readings**.
+
+## Preset Export / Import
+
+- Export presets as a **versioned JSON bundle**
+- Import presets in **Replace** or **Add** mode
+- Preset metadata, artwork references, and app-profile flags are preserved
+
+## Preset Artwork and Management
+
+- Preset artwork editor supports:
+  - Built-in icons
+  - Custom emoji
+  - Uploaded custom images
+  - Assigned app icons
+- Rename presets directly from the update flow
+- Long-press delete to remove **all presets** with confirmation
+- Horizontal preset presentation with smoother cover-flow and snap behavior
+
+## Animation Color Customization
+
+- Per-preset custom colors for **Battery Indicator**: low / mid / high
+- Per-preset custom colors for **CPU Temperature**: cool / warm / hot
+- Long-press color swatches to reset to defaults
+
+## Service and UX Controls
+
+- Toggle for persistent foreground notification
+- Improved switch visuals and general UX polish
+- Better app-mode fallback handling: if app mode is on and no fallback preset is selected, Bifrost keeps the service active but does not apply an animation until a mapped/fallback preset can be resolved
 
 ---
 
