@@ -9,6 +9,13 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_save">Save</string>
     <string name="action_dont_save">Do not save</string>
+    <string name="action_add">Add</string>
+    <string name="action_replace">Replace everything</string>
+
+    <!-- Delete all presets / confirmation -->
+    <string name="delete_all_presets_title">Delete all presets</string>
+    <string name="delete_all_presets_body">This will permanently delete every preset and cannot be undone.</string>
+    <string name="action_delete_all">Delete all</string>
 
     <string name="ragnarok_warning_title">RAGNAROK MODE</string>
     <string name="ragnarok_warning_subtitle">This mode disables all throttling and may cause system instability or freezes with screen capture animations.</string>

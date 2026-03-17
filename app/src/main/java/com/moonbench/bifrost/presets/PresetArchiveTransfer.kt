@@ -3,6 +3,7 @@ package com.moonbench.bifrost
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.CancellationSignal
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import org.json.JSONArray
@@ -36,7 +37,8 @@ object PresetArchiveTransfer {
         context: Context,
         uri: Uri,
         presets: List<LedPreset>,
-        mappings: Map<String, String>
+        mappings: Map<String, String>,
+        cancelSignal: CancellationSignal? = null
     ): ExportResult {
         val warnings = mutableListOf<String>()
         var exportedIconCount = 0
@@ -81,13 +83,17 @@ object PresetArchiveTransfer {
         }
 
         val seenIconNames = linkedSetOf<String>()
+        // Check for cancellation before starting heavy IO
+        cancelSignal?.throwIfCanceled()
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             ZipOutputStream(stream.buffered()).use { zip ->
+                cancelSignal?.throwIfCanceled()
                 zip.putNextEntry(ZipEntry(MANIFEST_ENTRY_NAME))
                 zip.write(manifest.toString(2).toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
 
                 presets.forEach { preset ->
+                    cancelSignal?.throwIfCanceled()
                     val iconName = preset.customImageFileName?.trim().orEmpty()
                     if (iconName.isEmpty() || !seenIconNames.add(iconName)) return@forEach
 
@@ -98,6 +104,7 @@ object PresetArchiveTransfer {
                     }
 
                     input.use { iconStream ->
+                        cancelSignal?.throwIfCanceled()
                         zip.putNextEntry(ZipEntry("$ICONS_DIR_PREFIX$iconName"))
                         iconStream.copyTo(zip)
                         zip.closeEntry()
@@ -114,14 +121,17 @@ object PresetArchiveTransfer {
         )
     }
 
-    fun importFromUri(context: Context, uri: Uri): ImportResult {
+    fun importFromUri(context: Context, uri: Uri, cancelSignal: CancellationSignal? = null): ImportResult {
         val warnings = mutableListOf<String>()
         val errors = mutableListOf<String>()
 
         val zipEntries = mutableMapOf<String, ByteArray>()
+        // Check cancellation before reading
+        cancelSignal?.throwIfCanceled()
         context.contentResolver.openInputStream(uri)?.use { input ->
             ZipInputStream(input.buffered()).use { zip ->
                 while (true) {
+                    cancelSignal?.throwIfCanceled()
                     val entry = zip.nextEntry ?: break
                     if (entry.isDirectory) {
                         zip.closeEntry()
@@ -177,11 +187,12 @@ object PresetArchiveTransfer {
         val importedPresets = mutableListOf<LedPreset>()
 
         for (index in 0 until presetArray.length()) {
+            cancelSignal?.throwIfCanceled()
             val obj = presetArray.optJSONObject(index) ?: continue
-            importedPresets += parsePreset(context, obj, index, zipEntries, warnings)
+            importedPresets += parsePreset(context, obj, index, zipEntries, warnings, cancelSignal)
         }
 
-        val mappings = parseMappings(context, manifest.optJSONObject("appProfileMappings"), warnings)
+        val mappings = parseMappings(context, manifest.optJSONObject("appProfileMappings"), warnings, cancelSignal)
 
         return ImportResult(
             presets = importedPresets,
@@ -196,8 +207,10 @@ object PresetArchiveTransfer {
         obj: JSONObject,
         index: Int,
         zipEntries: Map<String, ByteArray>,
-        warnings: MutableList<String>
+        warnings: MutableList<String>,
+        cancelSignal: CancellationSignal? = null
     ): LedPreset {
+        cancelSignal?.throwIfCanceled()
         val name = obj.optString("name").takeIf { it.isNotBlank() } ?: "Imported Preset ${index + 1}"
 
         val animationTypeName = obj.optString("animationType", LedAnimationType.STATIC.name)
@@ -217,6 +230,7 @@ object PresetArchiveTransfer {
 
         val importedIconName = obj.optString("customImageFileName").takeIf { it.isNotBlank() }
         val customImageFileName = if (importedIconName != null) {
+            cancelSignal?.throwIfCanceled()
             val archiveEntryName = "$ICONS_DIR_PREFIX$importedIconName"
             val iconBytes = zipEntries[archiveEntryName]
             if (iconBytes == null) {
@@ -235,7 +249,7 @@ object PresetArchiveTransfer {
 
         val requestedAppIconPackage = obj.optString("appIconPackageName").takeIf { it.isNotBlank() }
         val appIconPackageName = requestedAppIconPackage?.takeIf {
-            isPackageInstalled(context.packageManager, it)
+            cancelSignal?.throwIfCanceled(); isPackageInstalled(context.packageManager, it)
         } ?: run {
             if (!requestedAppIconPackage.isNullOrBlank()) {
                 warnings += "Preset '$name': assigned app icon package '$requestedAppIconPackage' is not installed, skipping."
@@ -273,13 +287,15 @@ object PresetArchiveTransfer {
     private fun parseMappings(
         context: Context,
         mappingsObj: JSONObject?,
-        warnings: MutableList<String>
+        warnings: MutableList<String>,
+        cancelSignal: CancellationSignal? = null
     ): Map<String, String> {
         if (mappingsObj == null) return emptyMap()
 
         val mappings = linkedMapOf<String, String>()
         val iterator = mappingsObj.keys()
         while (iterator.hasNext()) {
+            cancelSignal?.throwIfCanceled()
             val packageName = iterator.next()
             val presetName = mappingsObj.optString(packageName).takeIf { it.isNotBlank() }
             if (presetName == null) continue

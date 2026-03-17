@@ -2441,9 +2441,48 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (result.presets.isNotEmpty()) {
+        if (result.presets.isEmpty()) {
+            showImportReport(result)
+            return
+        }
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = "IMPORT MODE",
+            subtitle = "Choose how to apply imported presets",
+            body = "Replace everything: current presets are overwritten.\nAdd: imported presets are appended to existing ones.",
+            positiveLabelResId = R.string.action_replace,
+            negativeLabelResId = R.string.action_add,
+            cancelable = true,
+            onConfirm = {
+                applyImportedBundle(result, replaceEverything = true)
+            },
+            onCancel = {
+                applyImportedBundle(result, replaceEverything = false)
+            }
+        )
+    }
+
+    private fun applyImportedBundle(
+        result: PresetArchiveTransfer.ImportResult,
+        replaceEverything: Boolean
+    ) {
+        val presetsApplied = if (replaceEverything) {
             presetController.replaceAllPresetsFromImport(result.presets)
-            appProfileManager.replaceMappings(result.mappings)
+        } else {
+            presetController.appendPresetsFromImport(result.presets)
+        }
+
+        if (presetsApplied) {
+            if (replaceEverything) {
+                appProfileManager.replaceMappings(result.mappings)
+            } else {
+                val mergedMappings = appProfileManager.getMappings().toMutableMap().apply {
+                    putAll(result.mappings)
+                }
+                appProfileManager.replaceMappings(mergedMappings)
+            }
+
             refreshCoverFlowFromPresets()
 
             if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
@@ -2456,6 +2495,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        showImportReport(result)
+    }
+
+    private fun showImportReport(result: PresetArchiveTransfer.ImportResult) {
         val totalIssues = result.errors.size + result.warnings.size
         val subtitle = if (result.presets.isEmpty()) {
             "No presets imported"
