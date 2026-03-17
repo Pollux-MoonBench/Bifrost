@@ -67,6 +67,13 @@ class LEDService : Service() {
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
         const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
+        private const val EXTRA_BATTERY_LOW_COLOR_OVERRIDE = "batteryLowColorOverride"
+        private const val EXTRA_BATTERY_MID_COLOR_OVERRIDE = "batteryMidColorOverride"
+        private const val EXTRA_BATTERY_HIGH_COLOR_OVERRIDE = "batteryHighColorOverride"
+        private const val EXTRA_CPU_COOL_COLOR_OVERRIDE = "cpuCoolColorOverride"
+        private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
+        private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
+        private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
         var isRunning = false
     }
 
@@ -93,6 +100,12 @@ class LEDService : Service() {
     private var currentBreatheWhenCharging: Boolean = false
     private var currentIndicateChargingSpeed: Boolean = false
     private var currentFlashWhenReady: Boolean = false
+    private var currentBatteryLowColorOverride: Int? = null
+    private var currentBatteryMidColorOverride: Int? = null
+    private var currentBatteryHighColorOverride: Int? = null
+    private var currentCpuCoolColorOverride: Int? = null
+    private var currentCpuWarmColorOverride: Int? = null
+    private var currentCpuHotColorOverride: Int? = null
     private var currentBatteryOverrideWhenPlugged: Boolean = false
     private var currentPersistentNotification: Boolean = true
     private var allowBackgroundRun: Boolean = false
@@ -220,6 +233,12 @@ class LEDService : Service() {
         currentBreatheWhenCharging = intent.getBooleanExtra("breatheWhenCharging", false)
         currentIndicateChargingSpeed = intent.getBooleanExtra("indicateChargingSpeed", false)
         currentFlashWhenReady = intent.getBooleanExtra("flashWhenReady", false)
+        currentBatteryLowColorOverride = parseOptionalColor(intent, EXTRA_BATTERY_LOW_COLOR_OVERRIDE)
+        currentBatteryMidColorOverride = parseOptionalColor(intent, EXTRA_BATTERY_MID_COLOR_OVERRIDE)
+        currentBatteryHighColorOverride = parseOptionalColor(intent, EXTRA_BATTERY_HIGH_COLOR_OVERRIDE)
+        currentCpuCoolColorOverride = parseOptionalColor(intent, EXTRA_CPU_COOL_COLOR_OVERRIDE)
+        currentCpuWarmColorOverride = parseOptionalColor(intent, EXTRA_CPU_WARM_COLOR_OVERRIDE)
+        currentCpuHotColorOverride = parseOptionalColor(intent, EXTRA_CPU_HOT_COLOR_OVERRIDE)
         currentAmbilightDisplayId = intent.getIntExtra("ambilightDisplayId", Display.DEFAULT_DISPLAY)
 
         lastProjectionResultCode = intent.getIntExtra("resultCode", Activity.RESULT_OK)
@@ -340,6 +359,53 @@ class LEDService : Service() {
             if (newFlashWhenReady != currentFlashWhenReady) {
                 currentFlashWhenReady = newFlashWhenReady
                 animation?.setFlashWhenReady(currentFlashWhenReady)
+            }
+        }
+
+        if (
+            intent.hasExtra(EXTRA_BATTERY_LOW_COLOR_OVERRIDE) ||
+            intent.hasExtra(EXTRA_BATTERY_MID_COLOR_OVERRIDE) ||
+            intent.hasExtra(EXTRA_BATTERY_HIGH_COLOR_OVERRIDE) ||
+            intent.hasExtra(EXTRA_CPU_COOL_COLOR_OVERRIDE) ||
+            intent.hasExtra(EXTRA_CPU_WARM_COLOR_OVERRIDE) ||
+            intent.hasExtra(EXTRA_CPU_HOT_COLOR_OVERRIDE)
+        ) {
+            var paletteChanged = false
+
+            val newBatteryLow = parseOptionalColor(intent, EXTRA_BATTERY_LOW_COLOR_OVERRIDE)
+            val newBatteryMid = parseOptionalColor(intent, EXTRA_BATTERY_MID_COLOR_OVERRIDE)
+            val newBatteryHigh = parseOptionalColor(intent, EXTRA_BATTERY_HIGH_COLOR_OVERRIDE)
+            val newCpuCool = parseOptionalColor(intent, EXTRA_CPU_COOL_COLOR_OVERRIDE)
+            val newCpuWarm = parseOptionalColor(intent, EXTRA_CPU_WARM_COLOR_OVERRIDE)
+            val newCpuHot = parseOptionalColor(intent, EXTRA_CPU_HOT_COLOR_OVERRIDE)
+
+            if (newBatteryLow != currentBatteryLowColorOverride) {
+                currentBatteryLowColorOverride = newBatteryLow
+                paletteChanged = true
+            }
+            if (newBatteryMid != currentBatteryMidColorOverride) {
+                currentBatteryMidColorOverride = newBatteryMid
+                paletteChanged = true
+            }
+            if (newBatteryHigh != currentBatteryHighColorOverride) {
+                currentBatteryHighColorOverride = newBatteryHigh
+                paletteChanged = true
+            }
+            if (newCpuCool != currentCpuCoolColorOverride) {
+                currentCpuCoolColorOverride = newCpuCool
+                paletteChanged = true
+            }
+            if (newCpuWarm != currentCpuWarmColorOverride) {
+                currentCpuWarmColorOverride = newCpuWarm
+                paletteChanged = true
+            }
+            if (newCpuHot != currentCpuHotColorOverride) {
+                currentCpuHotColorOverride = newCpuHot
+                paletteChanged = true
+            }
+
+            if (paletteChanged) {
+                restartAnimationForCurrentState(force = true)
             }
         }
 
@@ -587,7 +653,19 @@ class LEDService : Service() {
         currentBreatheWhenCharging = preset.breatheWhenCharging
         currentIndicateChargingSpeed = preset.indicateChargingSpeed
         currentFlashWhenReady = preset.flashWhenReady
+        currentBatteryLowColorOverride = preset.batteryLowColorOverride
+        currentBatteryMidColorOverride = preset.batteryMidColorOverride
+        currentBatteryHighColorOverride = preset.batteryHighColorOverride
+        currentCpuCoolColorOverride = preset.cpuCoolColorOverride
+        currentCpuWarmColorOverride = preset.cpuWarmColorOverride
+        currentCpuHotColorOverride = preset.cpuHotColorOverride
         restartAnimationForCurrentState(force = true)
+    }
+
+    private fun parseOptionalColor(intent: Intent, key: String): Int? {
+        if (!intent.hasExtra(key)) return null
+        val value = intent.getIntExtra(key, COLOR_OVERRIDE_UNSET)
+        return value.takeUnless { it == COLOR_OVERRIDE_UNSET }
     }
 
     private fun isActivityRunning(): Boolean {
@@ -839,9 +917,17 @@ class LEDService : Service() {
                 this,
                 currentBreatheWhenCharging,
                 currentIndicateChargingSpeed,
-                currentFlashWhenReady
+                currentFlashWhenReady,
+                currentBatteryLowColorOverride,
+                currentBatteryMidColorOverride,
+                currentBatteryHighColorOverride
             )
-            LedAnimationType.CPU_TEMPERATURE -> CpuTemperatureAnimation(ledController)
+            LedAnimationType.CPU_TEMPERATURE -> CpuTemperatureAnimation(
+                ledController,
+                coolColorOverride = currentCpuCoolColorOverride,
+                warmColorOverride = currentCpuWarmColorOverride,
+                hotColorOverride = currentCpuHotColorOverride
+            )
             LedAnimationType.STATIC -> StaticAnimation(ledController, color, rightColor)
             LedAnimationType.BREATH -> BreathAnimation(ledController, color, rightColor)
             LedAnimationType.RAINBOW -> RainbowAnimation(ledController)
