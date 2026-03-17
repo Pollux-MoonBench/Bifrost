@@ -16,7 +16,8 @@ import java.util.UUID
 data class PresetVisualSpec(
     val builtInIcon: PresetIcon,
     val customEmoji: String? = null,
-    val customImageFileName: String? = null
+    val customImageFileName: String? = null,
+    val appIconPackageName: String? = null
 )
 
 object PresetVisuals {
@@ -25,7 +26,8 @@ object PresetVisuals {
         return PresetVisualSpec(
             builtInIcon = preset.icon,
             customEmoji = preset.customEmoji,
-            customImageFileName = preset.customImageFileName
+            customImageFileName = preset.customImageFileName,
+            appIconPackageName = preset.appIconPackageName
         )
     }
 
@@ -37,6 +39,7 @@ object PresetVisuals {
         return when {
             !preset.customImageFileName.isNullOrBlank() -> "Uploaded image"
             !preset.customEmoji.isNullOrBlank() -> "Custom emoji"
+            !preset.appIconPackageName.isNullOrBlank() -> "Assigned app icon"
             else -> preset.icon.label
         }
     }
@@ -67,6 +70,20 @@ object PresetVisuals {
             iconView.visibility = android.view.View.GONE
             emojiView.text = emojiValue
             emojiView.visibility = android.view.View.VISIBLE
+            return
+        }
+
+        val appIconDrawable = spec.appIconPackageName
+            ?.takeIf { it.isNotBlank() }
+            ?.let { packageName ->
+                runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()
+            }
+        if (appIconDrawable != null) {
+            emojiView.text = null
+            emojiView.visibility = android.view.View.GONE
+            iconView.visibility = android.view.View.VISIBLE
+            iconView.scaleType = ImageView.ScaleType.FIT_CENTER
+            iconView.setImageDrawable(appIconDrawable)
             return
         }
 

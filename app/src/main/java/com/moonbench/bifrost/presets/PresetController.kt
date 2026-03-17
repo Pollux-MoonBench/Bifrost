@@ -53,6 +53,7 @@ class PresetController(
     fun init(initialConfig: LedPreset): LedPreset {
         presets.clear()
         presets.addAll(loadPresetsFromPrefs())
+        normalizeAppProfileDefaultPreset()
         val initialPreset = resolveInitialPreset(initialConfig)
         markIsUpdatingFromPreset(true)
         applyPresetToUi(initialPreset)
@@ -61,7 +62,51 @@ class PresetController(
         return initialPreset
     }
 
+    private fun normalizeAppProfileDefaultPreset() {
+        val defaultIndexes = presets.mapIndexedNotNull { index, preset ->
+            if (preset.isAppProfileDefault) index else null
+        }
+        if (defaultIndexes.size <= 1) return
+
+        val keepIndex = defaultIndexes.first()
+        presets.indices.forEach { index ->
+            presets[index] = presets[index].copy(isAppProfileDefault = index == keepIndex)
+        }
+        savePresetsToPrefs()
+    }
+
     fun getPresets(): List<LedPreset> = presets
+
+
+    fun setAppProfileDefaultPreset(index: Int, isDefault: Boolean): Boolean {
+        if (index !in presets.indices) return false
+
+        val changed = if (isDefault) {
+            var hasChanges = false
+            presets.indices.forEach { i ->
+                val shouldBeDefault = (i == index)
+                if (presets[i].isAppProfileDefault != shouldBeDefault) {
+                    presets[i] = presets[i].copy(isAppProfileDefault = shouldBeDefault)
+                    hasChanges = true
+                }
+            }
+            hasChanges
+        } else {
+            if (!presets[index].isAppProfileDefault) {
+                false
+            } else {
+                presets[index] = presets[index].copy(isAppProfileDefault = false)
+                true
+            }
+        }
+
+        if (!changed) return false
+
+        val selectedName = presets.getOrNull(selectedIndex)?.name
+        savePresetsToPrefs()
+        refreshPresetSpinner(selectedName)
+        return true
+    }
 
     fun applyPresetAt(index: Int, syncSpinner: Boolean = true) {
         if (index !in presets.indices) return
@@ -127,10 +172,12 @@ class PresetController(
 
         val updated = base.copy(
             name = current.name,
+            isAppProfileDefault = current.isAppProfileDefault,
             ragnarokAccepted = accepted,
             icon = current.icon,
             customEmoji = current.customEmoji,
-            customImageFileName = current.customImageFileName
+            customImageFileName = current.customImageFileName,
+            appIconPackageName = current.appIconPackageName
         )
 
         replacePreset(
@@ -233,6 +280,8 @@ class PresetController(
                 .takeIf { it.isNotBlank() }
             val customImageFileName = obj.optString("customImageFileName")
                 .takeIf { it.isNotBlank() }
+            val appIconPackageName = obj.optString("appIconPackageName")
+                .takeIf { it.isNotBlank() }
 
             val accepted = obj.optBoolean("ragnarokAccepted", false)
             val useCustomSampling = obj.optBoolean("useCustomSampling", false)
@@ -240,6 +289,7 @@ class PresetController(
             val breatheWhenCharging = obj.optBoolean("breatheWhenCharging", false)
             val indicateChargingSpeed = obj.optBoolean("indicateChargingSpeed", false)
             val flashWhenReady = obj.optBoolean("flashWhenReady", false)
+            val isAppProfileDefault = obj.optBoolean("isAppProfileDefault", false)
 
             val color = obj.optInt("color", Color.WHITE)
             list.add(
@@ -259,10 +309,12 @@ class PresetController(
                     breatheWhenCharging = breatheWhenCharging,
                     indicateChargingSpeed = indicateChargingSpeed,
                     flashWhenReady = flashWhenReady,
+                    isAppProfileDefault = isAppProfileDefault,
                     ragnarokAccepted = accepted,
                     icon = icon,
                     customEmoji = customEmoji,
-                    customImageFileName = customImageFileName
+                    customImageFileName = customImageFileName,
+                    appIconPackageName = appIconPackageName
                 )
             )
         }
@@ -290,10 +342,12 @@ class PresetController(
             obj.put("breatheWhenCharging", preset.breatheWhenCharging)
             obj.put("indicateChargingSpeed", preset.indicateChargingSpeed)
             obj.put("flashWhenReady", preset.flashWhenReady)
+            obj.put("isAppProfileDefault", preset.isAppProfileDefault)
             obj.put("ragnarokAccepted", preset.ragnarokAccepted)
             obj.put("icon", preset.icon.name)
             preset.customEmoji?.let { obj.put("customEmoji", it) }
             preset.customImageFileName?.let { obj.put("customImageFileName", it) }
+            preset.appIconPackageName?.let { obj.put("appIconPackageName", it) }
             array.put(obj)
         }
 
@@ -330,8 +384,6 @@ class PresetController(
 
     private fun showSaveAsNewPresetDialog(mode: CreatePresetDialogMode = CreatePresetDialogMode.DEFAULT) {
         val defaultName = "Preset ${presets.size + 1}"
-        val initialIcon = presets.getOrNull(selectedIndex)?.icon
-            ?: PresetIcon.defaultFor(getCurrentConfig().animationType)
 
         val title = if (mode == CreatePresetDialogMode.HOME_PLUS) {
             "NEW PRESET"
@@ -344,20 +396,17 @@ class PresetController(
             subtitle = "Name this configuration for quick access",
             positiveButtonLabel = "Save",
             initialName = defaultName,
-            initialIcon = initialIcon,
             showNameInput = true,
             showCustomImageOption = mode == CreatePresetDialogMode.HOME_PLUS,
-            onConfirm = { rawName, icon ->
+            onConfirm = { rawName ->
                 createPresetFromInputs(
                     rawName = rawName,
-                    icon = icon,
                     defaultName = defaultName
                 )
             },
-            onConfirmWithCustomImage = { rawName, icon ->
+            onConfirmWithCustomImage = { rawName ->
                 val newIndex = createPresetFromInputs(
                     rawName = rawName,
-                    icon = icon,
                     defaultName = defaultName
                 )
                 if (newIndex >= 0) {
@@ -367,15 +416,19 @@ class PresetController(
         )
     }
 
-    private fun createPresetFromInputs(rawName: String, icon: PresetIcon, defaultName: String): Int {
+    private fun createPresetFromInputs(rawName: String, defaultName: String): Int {
         val base = getCurrentConfig()
         val desired = if (rawName.isEmpty()) defaultName else rawName
         val unique = ensureUniqueName(desired)
+        val baseIcon = presets.getOrNull(selectedIndex)?.icon
+            ?: PresetIcon.defaultFor(base.animationType)
         val newPreset = base.copy(
             name = unique,
-            icon = icon,
+            isAppProfileDefault = false,
+            icon = baseIcon,
             customEmoji = null,
             customImageFileName = null,
+            appIconPackageName = null,
             ragnarokAccepted = base.performanceProfile == PerformanceProfile.RAGNAROK
         )
 
@@ -403,21 +456,22 @@ class PresetController(
         val current = presets[selectedIndex]
         showPresetEditorDialog(
             title = "UPDATE PRESET",
-            subtitle = "Save the current configuration to ${current.name} and choose its icon",
+            subtitle = "Save the current configuration to ${current.name}",
             positiveButtonLabel = "Update",
             initialName = current.name,
-            initialIcon = current.icon,
             showNameInput = false
-        ) { _, icon ->
+        ) { _ ->
             val base = getCurrentConfig()
             val accepted = current.ragnarokAccepted || base.performanceProfile == PerformanceProfile.RAGNAROK
 
             val final = base.copy(
                 name = current.name,
+                isAppProfileDefault = current.isAppProfileDefault,
                 ragnarokAccepted = accepted,
-                icon = icon,
-                customEmoji = null,
-                customImageFileName = null
+                icon = current.icon,
+                customEmoji = current.customEmoji,
+                customImageFileName = current.customImageFileName,
+                appIconPackageName = current.appIconPackageName
             )
 
             replacePreset(
@@ -469,11 +523,10 @@ class PresetController(
         subtitle: String,
         positiveButtonLabel: String,
         initialName: String,
-        initialIcon: PresetIcon,
         showNameInput: Boolean,
         showCustomImageOption: Boolean = false,
-        onConfirmWithCustomImage: ((String, PresetIcon) -> Unit)? = null,
-        onConfirm: (String, PresetIcon) -> Unit
+        onConfirmWithCustomImage: ((String) -> Unit)? = null,
+        onConfirm: (String) -> Unit
     ) {
         val inflater = LayoutInflater.from(activity)
         val view = inflater.inflate(R.layout.dialog_preset_name, null)
@@ -481,9 +534,7 @@ class PresetController(
         val subtitleView = view.findViewById<TextView>(R.id.dialogSubtitle)
         val nameInputLayout = view.findViewById<TextInputLayout>(R.id.presetNameInputLayout)
         val nameInput = view.findViewById<TextInputEditText>(R.id.presetNameInput)
-        val iconSpinner = view.findViewById<Spinner>(R.id.presetIconSpinner)
         val customImageButton = view.findViewById<MaterialButton>(R.id.presetCustomImageButton)
-        val icons = PresetIcon.values().toList()
 
         titleView.text = title
         subtitleView.text = subtitle
@@ -494,15 +545,6 @@ class PresetController(
             nameInput.setSelection(initialName.length)
         }
 
-        iconSpinner.adapter = IconLabelSpinnerAdapter(
-            activity = activity,
-            items = icons,
-            itemLayoutRes = R.layout.item_spinner_preset,
-            dropdownLayoutRes = R.layout.item_spinner_preset_dropdown,
-            labelProvider = { it.label },
-            visualProvider = { PresetVisuals.fromBuiltIn(it) }
-        )
-        iconSpinner.setSelection(icons.indexOf(initialIcon).coerceAtLeast(0), false)
         customImageButton.visibility = if (showCustomImageOption) View.VISIBLE else View.GONE
 
         val dialog = androidx.appcompat.app.AlertDialog.Builder(activity)
@@ -513,8 +555,7 @@ class PresetController(
                 } else {
                     initialName
                 }
-                val resolvedIcon = icons.getOrElse(iconSpinner.selectedItemPosition) { initialIcon }
-                onConfirm(resolvedName, resolvedIcon)
+                onConfirm(resolvedName)
             }
             .setNegativeButton("Cancel", null)
             .create()
@@ -528,9 +569,8 @@ class PresetController(
                 } else {
                     initialName
                 }
-                val resolvedIcon = icons.getOrElse(iconSpinner.selectedItemPosition) { initialIcon }
                 dialog.dismiss()
-                onConfirmWithCustomImage.invoke(resolvedName, resolvedIcon)
+                onConfirmWithCustomImage.invoke(resolvedName)
             }
         }
 

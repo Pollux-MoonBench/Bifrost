@@ -19,8 +19,10 @@ data class LedPreset(
     val breatheWhenCharging: Boolean = false,
     val indicateChargingSpeed: Boolean = false,
     val flashWhenReady: Boolean = false,
+    val isAppProfileDefault: Boolean = false,
     val ragnarokAccepted: Boolean = false,
     val icon: PresetIcon = PresetIcon.LIGHT,
     val customEmoji: String? = null,
-    val customImageFileName: String? = null
+    val customImageFileName: String? = null,
+    val appIconPackageName: String? = null
 )
