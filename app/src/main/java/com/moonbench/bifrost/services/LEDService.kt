@@ -62,6 +62,7 @@ class LEDService : Service() {
         const val NOTIFICATION_ID = 4242
         const val ACTION_STOP = "com.moonbench.bifrost.STOP"
         const val ACTION_UPDATE_PARAMS = "com.moonbench.bifrost.UPDATE_PARAMS"
+        const val ACTION_FORCE_APP_PROFILE_RESOLUTION = "com.moonbench.bifrost.FORCE_APP_PROFILE_RESOLUTION"
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
         const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
@@ -103,6 +104,7 @@ class LEDService : Service() {
     private var pendingTransitionRunnable: Runnable? = null
     private var pendingProjectionRunnable: Runnable? = null
     private var pendingShutdownRunnable: Runnable? = null
+    private var isAppProfileSuppressed: Boolean = false
 
     private val batteryStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -157,6 +159,13 @@ class LEDService : Service() {
 
         if (intent.action == ACTION_UPDATE_PARAMS) {
             handleUpdateParams(intent)
+            return START_NOT_STICKY
+        }
+
+        if (intent.action == ACTION_FORCE_APP_PROFILE_RESOLUTION) {
+            if (isRunning) {
+                checkAutoProfileSwitch()
+            }
             return START_NOT_STICKY
         }
 
@@ -220,6 +229,7 @@ class LEDService : Service() {
         currentSpeed = speed
         currentSmoothness = smoothness
         currentSensitivity = sensitivity
+        isAppProfileSuppressed = false
 
         refreshPluggedStateSnapshot()
 
@@ -230,6 +240,7 @@ class LEDService : Service() {
 
     private fun handleUpdateParams(intent: Intent) {
         if (!isRunning) return
+        isAppProfileSuppressed = false
         val animation = currentAnimation
 
         if (intent.hasExtra("animationColor") || intent.hasExtra("animationRightColor")) {
@@ -353,6 +364,11 @@ class LEDService : Service() {
 
     private fun restartAnimationForCurrentState(force: Boolean = false) {
         if (!isRunning || isStopping.get()) return
+
+        if (isAppProfileSuppressed && !(currentBatteryOverrideWhenPlugged && isDevicePluggedIn)) {
+            stopCurrentAnimation()
+            return
+        }
 
         val effectiveType = resolveEffectiveAnimationType()
         if (!force && effectiveType == activeAnimationType) return
@@ -530,17 +546,26 @@ class LEDService : Service() {
     private fun checkAutoProfileSwitch() {
         if (!isRunning || isTransitioning.get() || isStopping.get()) return
 
-        val preset = appProfileManager.checkForSwitch(this) ?: return
+        val switchResult = appProfileManager.checkForSwitch(this) ?: return
 
         // Keep the UI in sync by tracking which preset is active when auto-switch is enabled.
-        prefs.edit().putString(PREF_KEY_LAST_PRESET, preset.name).apply()
+        prefs.edit().putString(PREF_KEY_LAST_PRESET, switchResult.presetName.orEmpty()).apply()
 
         // While the plugged-in battery override is active, keep tracking foreground-app
         // changes but do not apply the preset switch until the override is lifted.
         if (currentBatteryOverrideWhenPlugged && isDevicePluggedIn) return
 
+        val preset = switchResult.preset
+        if (preset == null) {
+            isAppProfileSuppressed = true
+            stopCurrentAnimation()
+            return
+        }
+
         val needsMP = needsMediaProjection(preset.animationType)
         if (needsMP && mediaProjection == null) return
+
+        isAppProfileSuppressed = false
 
         currentAnimationType = preset.animationType
         currentProfile = preset.performanceProfile
@@ -607,6 +632,7 @@ class LEDService : Service() {
             allowBackgroundRun = false
             isTransitioning.set(false)
             activeAnimationType = null
+            isAppProfileSuppressed = false
 
             stopCurrentAnimation()
 

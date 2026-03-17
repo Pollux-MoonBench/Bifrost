@@ -15,6 +15,11 @@ import org.json.JSONObject
 
 class AppProfileManager(private val prefs: SharedPreferences) {
 
+    data class SwitchResult(
+        val presetName: String?,
+        val preset: LedPreset?
+    )
+
     companion object {
         private const val PREF_KEY_MAPPINGS = "app_profile_mappings"
         private const val PREF_KEY_AUTO_SWITCH_ENABLED = "auto_switch_enabled"
@@ -24,6 +29,8 @@ class AppProfileManager(private val prefs: SharedPreferences) {
 
     @Volatile
     private var lastForegroundPackage: String? = null
+    @Volatile
+    private var lastResolvedPresetName: String? = null
     private var cachedMappingsRaw: String? = null
     private var cachedMappings: Map<String, String> = emptyMap()
     private var lastForegroundQueryAt: Long = 0L
@@ -115,29 +122,49 @@ class AppProfileManager(private val prefs: SharedPreferences) {
     }
 
     /**
-     * Checks if the foreground app changed and returns the mapped preset if so.
-     * Returns null if auto-switch is disabled, no change occurred, or no mapping exists.
+     * Resolves the effective app-profile preset from current foreground package.
+     * Returns null when no effective change happened since the previous check.
      */
-    fun checkForSwitch(context: Context): LedPreset? {
+    fun checkForSwitch(context: Context): SwitchResult? {
         if (!isEnabled) return null
 
         val currentPackage = getForegroundPackage(context) ?: return null
-        if (currentPackage == lastForegroundPackage) return null
         lastForegroundPackage = currentPackage
 
-        // Don't switch when Bifrost itself is in foreground
-        if (currentPackage == context.packageName) return null
-
         val mappings = getMappings()
-        val presetName = mappings[currentPackage] ?: return null
+        val fallbackPresetName = resolveDefaultPresetName()
+        val presetName = if (currentPackage == context.packageName) {
+            fallbackPresetName
+        } else {
+            mappings[currentPackage] ?: fallbackPresetName
+        }
 
-        return loadPresetByName(presetName)
+        if (presetName == lastResolvedPresetName) return null
+        lastResolvedPresetName = presetName
+
+        val preset = presetName?.let { loadPresetByName(it) }
+        return SwitchResult(presetName = presetName, preset = preset)
     }
 
     fun resetLastForegroundPackage() {
         lastForegroundPackage = null
+        lastResolvedPresetName = null
         cachedForegroundPackage = null
         lastForegroundQueryAt = 0L
+    }
+
+    private fun resolveDefaultPresetName(): String? {
+        val json = prefs.getString("presets_json", null) ?: return null
+        val array = runCatching { JSONArray(json) }.getOrNull() ?: return null
+
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            if (!obj.optBoolean("isAppProfileDefault", false)) continue
+            val name = obj.optString("name").takeIf { it.isNotBlank() }
+            if (name != null) return name
+        }
+
+        return null
     }
 
     private fun loadPresetByName(name: String): LedPreset? {
@@ -162,6 +189,8 @@ class AppProfileManager(private val prefs: SharedPreferences) {
                 .takeIf { it.isNotBlank() }
             val customImageFileName = obj.optString("customImageFileName")
                 .takeIf { it.isNotBlank() }
+            val appIconPackageName = obj.optString("appIconPackageName")
+                .takeIf { it.isNotBlank() }
 
             val color = obj.optInt("color", Color.WHITE)
             return LedPreset(
@@ -183,7 +212,8 @@ class AppProfileManager(private val prefs: SharedPreferences) {
                 ragnarokAccepted = obj.optBoolean("ragnarokAccepted", false),
                 icon = icon,
                 customEmoji = customEmoji,
-                customImageFileName = customImageFileName
+                customImageFileName = customImageFileName,
+                appIconPackageName = appIconPackageName
             )
         }
         return null

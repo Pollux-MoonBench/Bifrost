@@ -51,6 +51,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
@@ -102,6 +103,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var flashWhenReadySwitch: SwitchMaterial
     private lateinit var appProfileSwitch: SwitchMaterial
     private lateinit var homeAppProfileSwitch: SwitchMaterial
+    private lateinit var appProfileDefaultSwitch: SwitchMaterial
     private lateinit var assignAppButton: MaterialButton
     private lateinit var manageAppsButton: MaterialButton
     private lateinit var settingsOverlay: View
@@ -138,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         private const val COVER_FLOW_TILE_SIZE_DP = 176
         private const val COVER_FLOW_TILE_GAP_DP = 10
         private const val COVER_FLOW_CREATE_TAG = -1
+        private const val COVER_FLOW_SNAP_SETTLE_DELAY_MS = 100L
         private const val APP_PROFILE_SYNC_INTERVAL_MS = 1200L
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
 
@@ -181,8 +184,11 @@ class MainActivity : AppCompatActivity() {
     private var coverFlowSnapRunnable: Runnable? = null
     private var suppressNextCoverFlowSnap: Boolean = false
     private var isCoverFlowDragging: Boolean = false
+    private var isCoverFlowTouching: Boolean = false
+    private var lastCoverFlowScrollXForSnap: Int = 0
     private var isSettingsOverlayAnimating: Boolean = false
     private var isSyncingAppProfileSwitches: Boolean = false
+    private var isSyncingAppProfileDefaultSwitch: Boolean = false
     private var pendingPresetArtworkIndex: Int? = null
     private var presetArtworkSheetDialog: BottomSheetDialog? = null
     private var appProfileSyncRunnable: Runnable? = null
@@ -266,7 +272,8 @@ class MainActivity : AppCompatActivity() {
             val updatedPreset = presetController.updatePresetVisual(targetIndex) { preset ->
                 preset.copy(
                     customEmoji = null,
-                    customImageFileName = storedFileName
+                    customImageFileName = storedFileName,
+                    appIconPackageName = null
                 )
             }
 
@@ -347,6 +354,13 @@ class MainActivity : AppCompatActivity() {
         flashWhenReadySwitch = findViewById(R.id.flashWhenReadySwitch)
         appProfileSwitch = findViewById(R.id.appProfileSwitch)
         homeAppProfileSwitch = findViewById(R.id.homeAppProfileSwitch)
+        val appProfileDefaultSwitchId = resources.getIdentifier(
+            "appProfileDefaultSwitch",
+            "id",
+            packageName
+        )
+        check(appProfileDefaultSwitchId != 0) { "Missing appProfileDefaultSwitch id" }
+        appProfileDefaultSwitch = findViewById(appProfileDefaultSwitchId)
         assignAppButton = findViewById(R.id.assignAppButton)
         manageAppsButton = findViewById(R.id.manageAppsButton)
         modeCard = findViewById(R.id.modeCard)
@@ -446,19 +460,67 @@ class MainActivity : AppCompatActivity() {
                 return@setOnTouchListener true
             }
 
-            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
-                if (suppressNextCoverFlowSnap) {
-                    suppressNextCoverFlowSnap = false
-                    return@setOnTouchListener false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    isCoverFlowTouching = true
+                    cancelPendingCoverFlowSnap()
                 }
-                snapCoverFlowToNearestPreset()
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    isCoverFlowTouching = false
+                    scheduleCoverFlowSnap()
+                }
             }
             false
         }
 
         presetCoverFlowScroll.setOnScrollChangeListener { _, _, _, _, _ ->
             updateCoverFlowCardTransforms()
+            if (!::appProfileManager.isInitialized || !appProfileManager.isEnabled) {
+                if (!isCoverFlowTouching) {
+                    scheduleCoverFlowSnap()
+                }
+            }
         }
+    }
+
+    private fun cancelPendingCoverFlowSnap() {
+        coverFlowSnapRunnable?.let(mainHandler::removeCallbacks)
+        coverFlowSnapRunnable = null
+    }
+
+    private fun scheduleCoverFlowSnap() {
+        if (!::presetController.isInitialized) return
+        if (::appProfileManager.isInitialized && appProfileManager.isEnabled) return
+
+        cancelPendingCoverFlowSnap()
+        lastCoverFlowScrollXForSnap = presetCoverFlowScroll.scrollX
+
+        coverFlowSnapRunnable = object : Runnable {
+            override fun run() {
+                if (isCoverFlowTouching) {
+                    cancelPendingCoverFlowSnap()
+                    return
+                }
+
+                val currentX = presetCoverFlowScroll.scrollX
+                if (currentX != lastCoverFlowScrollXForSnap) {
+                    lastCoverFlowScrollXForSnap = currentX
+                    mainHandler.postDelayed(this, COVER_FLOW_SNAP_SETTLE_DELAY_MS)
+                    return
+                }
+
+                if (suppressNextCoverFlowSnap) {
+                    suppressNextCoverFlowSnap = false
+                }
+
+                snapCoverFlowToNearestPreset()
+                cancelPendingCoverFlowSnap()
+            }
+        }
+
+        mainHandler.postDelayed(coverFlowSnapRunnable!!, COVER_FLOW_SNAP_SETTLE_DELAY_MS)
     }
 
     private fun openSettingsOverlay() {
@@ -627,6 +689,7 @@ class MainActivity : AppCompatActivity() {
         presets.forEachIndexed { index, preset ->
             var longPressTriggered = false
             var longPressRunnable: Runnable? = null
+            var movedTooMuchForTap = false
             val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
             var downX = 0f
             var downY = 0f
@@ -660,12 +723,14 @@ class MainActivity : AppCompatActivity() {
                     triggerCardLongPress()
                     true
                 }
-                setOnTouchListener { _, event ->
+                setOnTouchListener { view, event ->
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             longPressTriggered = false
+                            movedTooMuchForTap = false
                             downX = event.x
                             downY = event.y
+                            parent?.requestDisallowInterceptTouchEvent(true)
                             longPressRunnable?.let(mainHandler::removeCallbacks)
                             longPressRunnable = Runnable {
                                 if (!longPressTriggered) {
@@ -682,6 +747,8 @@ class MainActivity : AppCompatActivity() {
                         MotionEvent.ACTION_MOVE -> {
                             val movedTooMuch = abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop
                             if (movedTooMuch) {
+                                movedTooMuchForTap = true
+                                parent?.requestDisallowInterceptTouchEvent(false)
                                 longPressRunnable?.let(mainHandler::removeCallbacks)
                                 longPressRunnable = null
                             }
@@ -689,10 +756,21 @@ class MainActivity : AppCompatActivity() {
 
                         MotionEvent.ACTION_UP,
                         MotionEvent.ACTION_CANCEL -> {
+                            parent?.requestDisallowInterceptTouchEvent(false)
                             longPressRunnable?.let(mainHandler::removeCallbacks)
                             longPressRunnable = null
                             if (event.actionMasked == MotionEvent.ACTION_UP && longPressTriggered) {
                                 // Consume ACTION_UP after long press to avoid triggering the tap handler.
+                                return@setOnTouchListener true
+                            }
+
+                            if (
+                                event.actionMasked == MotionEvent.ACTION_UP &&
+                                !movedTooMuchForTap &&
+                                !autoSwitchEnabled &&
+                                !isCoverFlowDragging
+                            ) {
+                                view.performClick()
                                 return@setOnTouchListener true
                             }
                         }
@@ -748,7 +826,11 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dpToPx(14), dpToPx(10), dpToPx(14), dpToPx(10))
                 background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_glow_bg)
+                isClickable = true
                 isLongClickable = true
+                setOnClickListener {
+                    card.performClick()
+                }
                 setOnLongClickListener {
                     card.performLongClick()
                 }
@@ -831,6 +913,8 @@ class MainActivity : AppCompatActivity() {
             centerPresetCard(selectedCoverFlowIndex, animate = false)
             updateCoverFlowCardTransforms()
         }
+
+        syncAppProfileDefaultSwitch()
 
         updateManualPresetSwitchingUi(appProfileManager.isEnabled)
     }
@@ -959,7 +1043,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        selectPresetFromCoverFlow(nearestIndex, animate = true)
+        val shouldApplyPreset = nearestIndex != selectedCoverFlowIndex
+        selectPresetFromCoverFlow(nearestIndex, animate = true, applyPreset = shouldApplyPreset)
     }
 
     private fun centerPresetCard(index: Int, animate: Boolean) {
@@ -1060,6 +1145,22 @@ class MainActivity : AppCompatActivity() {
         isSyncingAppProfileSwitches = false
     }
 
+    private fun syncAppProfileDefaultSwitch() {
+        if (!::presetController.isInitialized) return
+        val selectedIndex = presetSpinner.selectedItemPosition
+        val preset = presetController.getPresets().getOrNull(selectedIndex)
+        isSyncingAppProfileDefaultSwitch = true
+        appProfileDefaultSwitch.isChecked = preset?.isAppProfileDefault == true
+        isSyncingAppProfileDefaultSwitch = false
+    }
+
+    private fun requestImmediateAppProfileResolution() {
+        if (!LEDService.isRunning) return
+        startService(Intent(this, LEDService::class.java).apply {
+            action = LEDService.ACTION_FORCE_APP_PROFILE_RESOLUTION
+        })
+    }
+
     private fun updateManualPresetSwitchingUi(autoSwitchEnabled: Boolean) {
         presetCoverFlowScroll.isEnabled = !autoSwitchEnabled
         presetCoverFlowScroll.scrollLocked = autoSwitchEnabled
@@ -1122,7 +1223,11 @@ class MainActivity : AppCompatActivity() {
 
         fun renderSheet(preset: LedPreset) {
             previewNameView.text = preset.name
-            resetButton.visibility = if (!preset.customEmoji.isNullOrBlank() || !preset.customImageFileName.isNullOrBlank()) {
+            resetButton.visibility = if (
+                !preset.customEmoji.isNullOrBlank() ||
+                !preset.customImageFileName.isNullOrBlank() ||
+                !preset.appIconPackageName.isNullOrBlank()
+            ) {
                 View.VISIBLE
             } else {
                 View.GONE
@@ -1140,6 +1245,7 @@ class MainActivity : AppCompatActivity() {
             builtInIcons.forEach { icon ->
                 val isSelected = preset.customEmoji.isNullOrBlank() &&
                     preset.customImageFileName.isNullOrBlank() &&
+                    preset.appIconPackageName.isNullOrBlank() &&
                     preset.icon == icon
                 iconOptionsContainer.addView(
                     createPresetArtworkIconOption(
@@ -1154,7 +1260,40 @@ class MainActivity : AppCompatActivity() {
                                 current.copy(
                                     icon = icon,
                                     customEmoji = null,
-                                    customImageFileName = null
+                                    customImageFileName = null,
+                                    appIconPackageName = null
+                                )
+                            }
+                            if (updatedPreset != null) {
+                                renderSheet(updatedPreset)
+                            }
+                        }
+                    )
+                )
+            }
+
+            val assignedApps = resolveAssignedAppVisuals(preset.name)
+            assignedApps.forEach { appVisual ->
+                val isSelected =
+                    preset.customEmoji.isNullOrBlank() &&
+                    preset.customImageFileName.isNullOrBlank() &&
+                    preset.appIconPackageName == appVisual.packageName
+
+                iconOptionsContainer.addView(
+                    createPresetArtworkAppIconOption(
+                        iconDrawable = appVisual.icon,
+                        label = appVisual.appName,
+                        isSelected = isSelected,
+                        onClick = {
+                            emojiInputLayout.error = null
+                            emojiInput.setText("")
+                            val updatedPreset = updatePresetVisualInSheet(
+                                successMessage = { "${it.name} app icon updated" }
+                            ) { current ->
+                                current.copy(
+                                    customEmoji = null,
+                                    customImageFileName = null,
+                                    appIconPackageName = appVisual.packageName
                                 )
                             }
                             if (updatedPreset != null) {
@@ -1179,7 +1318,8 @@ class MainActivity : AppCompatActivity() {
             ) { current ->
                 current.copy(
                     customEmoji = value,
-                    customImageFileName = null
+                    customImageFileName = null,
+                    appIconPackageName = null
                 )
             }
             if (updatedPreset != null) {
@@ -1200,7 +1340,8 @@ class MainActivity : AppCompatActivity() {
             ) { current ->
                 current.copy(
                     customEmoji = null,
-                    customImageFileName = null
+                    customImageFileName = null,
+                    appIconPackageName = null
                 )
             }
             if (updatedPreset != null) {
@@ -1220,6 +1361,13 @@ class MainActivity : AppCompatActivity() {
 
         renderSheet(initialPreset)
         dialog.show()
+
+        val behavior = dialog.behavior
+        behavior.isFitToContents = true
+        behavior.skipCollapsed = false
+        behavior.peekHeight = dpToPx(300)
+        behavior.state = BottomSheetBehavior.STATE_COLLAPSED
+
         return true
     }
 
@@ -1294,6 +1442,49 @@ class MainActivity : AppCompatActivity() {
         return card
     }
 
+    private fun createPresetArtworkAppIconOption(
+        iconDrawable: android.graphics.drawable.Drawable,
+        label: String,
+        isSelected: Boolean,
+        onClick: () -> Unit
+    ): View {
+        val card = MaterialCardView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(64), dpToPx(64)).apply {
+                marginEnd = dpToPx(10)
+            }
+            radius = dpToPx(14).toFloat()
+            cardElevation = 0f
+            setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.bifrost_surface))
+            setStrokeColor(
+                ContextCompat.getColor(
+                    this@MainActivity,
+                    if (isSelected) R.color.bifrost_accent else R.color.bifrost_text_secondary
+                )
+            )
+            strokeWidth = dpToPx(if (isSelected) 2 else 1)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            contentDescription = label
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            setPadding(dpToPx(10), dpToPx(10), dpToPx(10), dpToPx(10))
+        }
+
+        val iconView = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(42), dpToPx(42))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageDrawable(iconDrawable)
+        }
+
+        content.addView(iconView)
+        card.addView(content)
+        return card
+    }
+
     private fun handleAppProfileToggleChange(isChecked: Boolean) {
         if (isSyncingAppProfileSwitches) return
 
@@ -1309,6 +1500,14 @@ class MainActivity : AppCompatActivity() {
         appProfileManager.resetLastForegroundPackage()
         syncAppProfileSwitches(isChecked)
         updateManualPresetSwitchingUi(isChecked)
+
+        if (!LEDService.isRunning || serviceController.isServiceTransitioning) return
+
+        if (isChecked) {
+            requestImmediateAppProfileResolution()
+        } else {
+            startService(createLedServiceIntent())
+        }
     }
 
     private fun formatCardAnimationLabel(animationName: String): String {
@@ -1903,6 +2102,26 @@ class MainActivity : AppCompatActivity() {
             handleAppProfileToggleChange(isChecked)
         }
 
+        appProfileDefaultSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isSyncingAppProfileDefaultSwitch || !::presetController.isInitialized) {
+                return@setOnCheckedChangeListener
+            }
+
+            val selectedIndex = presetSpinner.selectedItemPosition
+            val changed = presetController.setAppProfileDefaultPreset(selectedIndex, isChecked)
+            if (!changed) {
+                syncAppProfileDefaultSwitch()
+                return@setOnCheckedChangeListener
+            }
+
+            refreshCoverFlowFromPresets()
+
+            if (appProfileManager.isEnabled && LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                appProfileManager.resetLastForegroundPackage()
+                requestImmediateAppProfileResolution()
+            }
+        }
+
         assignAppButton.setOnClickListener { showAppPickerDialog() }
         manageAppsButton.setOnClickListener { showMappingsDialog() }
     }
@@ -2091,6 +2310,7 @@ class MainActivity : AppCompatActivity() {
                 breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
                 chargingSpeedIndicatorSwitch.isChecked = selectedIndicateChargingSpeed
                 flashWhenReadySwitch.isChecked = selectedFlashWhenReady
+                syncAppProfileDefaultSwitch()
 
                 updateParameterVisibility()
             },
@@ -2122,6 +2342,7 @@ class MainActivity : AppCompatActivity() {
 
         presetController.init(initialConfigPreset)
         refreshCoverFlowFromPresets()
+        syncAppProfileDefaultSwitch()
 
         // If the app switching feature is already enabled, start syncing the UI after presets load.
         if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
@@ -2395,4 +2616,30 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
+
+    data class AssignedAppVisual(
+        val packageName: String,
+        val appName: String,
+        val icon: android.graphics.drawable.Drawable
+    )
+
+    private fun resolveAssignedAppVisuals(presetName: String): List<AssignedAppVisual> {
+        val mappings = appProfileManager.getMappings()
+        val pm = packageManager
+
+        return mappings
+            .asSequence()
+            .filter { (_, mappedPresetName) -> mappedPresetName == presetName }
+            .map { (packageName, _) -> packageName }
+            .distinct()
+            .mapNotNull { packageName ->
+                val info = runCatching { pm.getApplicationInfo(packageName, 0) }.getOrNull() ?: return@mapNotNull null
+                val appName = runCatching { pm.getApplicationLabel(info).toString() }.getOrNull()
+                    ?: packageName
+                val icon = runCatching { pm.getApplicationIcon(info) }.getOrNull() ?: return@mapNotNull null
+                AssignedAppVisual(packageName = packageName, appName = appName, icon = icon)
+            }
+            .sortedBy { it.appName.lowercase() }
+            .toList()
 }
+
