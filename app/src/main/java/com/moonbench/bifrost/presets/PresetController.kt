@@ -18,6 +18,7 @@ import com.google.android.material.textfield.TextInputLayout
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.ui.DeletePresetDialog
+import com.moonbench.bifrost.ui.BifrostAlertDialog
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -157,6 +158,25 @@ class PresetController(
         return true
     }
 
+    fun appendPresetsFromImport(importedPresets: List<LedPreset>): Boolean {
+        if (importedPresets.isEmpty()) return false
+
+        val selectedPresetNameBeforeImport = presets.getOrNull(selectedIndex)?.name
+        presets.addAll(importedPresets)
+        normalizeAppProfileDefaultPreset()
+
+        val selectedName = selectedPresetNameBeforeImport ?: presets.first().name
+        savePresetsToPrefs()
+        saveLastPresetName(selectedName)
+        refreshPresetSpinner(selectedName)
+
+        val presetToShow = presets.getOrNull(selectedIndex) ?: presets.first()
+        markIsUpdatingFromPreset(true)
+        applyPresetToUi(presetToShow)
+        markIsUpdatingFromPreset(false)
+        return true
+    }
+
     fun movePreset(fromIndex: Int, toIndex: Int): Boolean {
         if (fromIndex !in presets.indices || toIndex !in presets.indices) return false
         if (fromIndex == toIndex) return false
@@ -250,6 +270,11 @@ class PresetController(
         saveAsNewButton.setOnClickListener { showSaveAsNewPresetDialog() }
         modifyButton.setOnClickListener { modifyCurrentPreset() }
         deleteButton.setOnClickListener { showDeleteDialog() }
+        // Long-press on delete button -> delete ALL presets after confirmation
+        deleteButton.setOnLongClickListener {
+            showDeleteAllDialog()
+            true
+        }
 
         presetSpinner.onItemSelectedListener =
             object : AdapterView.OnItemSelectedListener {
@@ -636,6 +661,43 @@ class PresetController(
                 }
             }
         )
+    }
+
+    private fun showDeleteAllDialog() {
+        val title = activity.getString(R.string.delete_all_presets_title)
+        val body = activity.getString(R.string.delete_all_presets_body)
+
+        BifrostAlertDialog().show(
+            activity = activity,
+            title = title,
+            subtitle = null,
+            body = body,
+            positiveLabelResId = R.string.action_delete_all,
+            negativeLabelResId = R.string.action_cancel,
+            cancelable = true,
+            onConfirm = {
+                deleteAllPresets()
+            },
+            onCancel = {}
+        )
+    }
+
+    private fun deleteAllPresets() {
+        // Remove custom images
+        presets.forEach { PresetImageStorage.deleteIfExists(activity, it.customImageFileName) }
+
+        // Clear list and persist
+        presets.clear()
+        savePresetsToPrefs()
+        saveLastPresetName("")
+        refreshPresetSpinner(null)
+
+        // Ensure there's a stable preset in the UI (resolveInitialPreset will add a default if empty)
+        val defaultPreset = resolveInitialPreset(getCurrentConfig())
+        markIsUpdatingFromPreset(true)
+        applyPresetToUi(defaultPreset)
+        markIsUpdatingFromPreset(false)
+        onPresetApplied()
     }
 }
 
