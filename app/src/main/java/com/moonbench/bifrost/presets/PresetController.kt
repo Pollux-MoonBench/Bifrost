@@ -34,7 +34,8 @@ class PresetController(
     private val markIsUpdatingFromPreset: (Boolean) -> Unit,
     private val isUpdatingFromPreset: () -> Boolean,
     private val onPresetApplied: () -> Unit,
-    private val onRequestCustomPresetImage: (Int) -> Unit
+    private val onRequestCustomPresetImage: (Int) -> Unit,
+    private val onPresetRenamed: (oldName: String, newName: String) -> Unit = { _, _ -> }
 ) {
 
     companion object {
@@ -366,6 +367,12 @@ class PresetController(
                     breatheWhenCharging = breatheWhenCharging,
                     indicateChargingSpeed = indicateChargingSpeed,
                     flashWhenReady = flashWhenReady,
+                    batteryLowColorOverride = obj.optInt("batteryLowColorOverride").takeIf { obj.has("batteryLowColorOverride") },
+                    batteryMidColorOverride = obj.optInt("batteryMidColorOverride").takeIf { obj.has("batteryMidColorOverride") },
+                    batteryHighColorOverride = obj.optInt("batteryHighColorOverride").takeIf { obj.has("batteryHighColorOverride") },
+                    cpuCoolColorOverride = obj.optInt("cpuCoolColorOverride").takeIf { obj.has("cpuCoolColorOverride") },
+                    cpuWarmColorOverride = obj.optInt("cpuWarmColorOverride").takeIf { obj.has("cpuWarmColorOverride") },
+                    cpuHotColorOverride = obj.optInt("cpuHotColorOverride").takeIf { obj.has("cpuHotColorOverride") },
                     isAppProfileDefault = isAppProfileDefault,
                     ragnarokAccepted = accepted,
                     icon = icon,
@@ -399,6 +406,12 @@ class PresetController(
             obj.put("breatheWhenCharging", preset.breatheWhenCharging)
             obj.put("indicateChargingSpeed", preset.indicateChargingSpeed)
             obj.put("flashWhenReady", preset.flashWhenReady)
+            preset.batteryLowColorOverride?.let { obj.put("batteryLowColorOverride", it) }
+            preset.batteryMidColorOverride?.let { obj.put("batteryMidColorOverride", it) }
+            preset.batteryHighColorOverride?.let { obj.put("batteryHighColorOverride", it) }
+            preset.cpuCoolColorOverride?.let { obj.put("cpuCoolColorOverride", it) }
+            preset.cpuWarmColorOverride?.let { obj.put("cpuWarmColorOverride", it) }
+            preset.cpuHotColorOverride?.let { obj.put("cpuHotColorOverride", it) }
             obj.put("isAppProfileDefault", preset.isAppProfileDefault)
             obj.put("ragnarokAccepted", preset.ragnarokAccepted)
             obj.put("icon", preset.icon.name)
@@ -513,16 +526,22 @@ class PresetController(
         val current = presets[selectedIndex]
         showPresetEditorDialog(
             title = "UPDATE PRESET",
-            subtitle = "Save the current configuration to ${current.name}",
+            subtitle = "Update and rename ${current.name} if needed",
             positiveButtonLabel = "Update",
             initialName = current.name,
-            showNameInput = false
-        ) { _ ->
+            showNameInput = true
+        ) { rawName ->
             val base = getCurrentConfig()
             val accepted = current.ragnarokAccepted || base.performanceProfile == PerformanceProfile.RAGNAROK
+            val desiredName = rawName.ifBlank { current.name }
+            val finalName = ensureUniqueNameForUpdate(desiredName, selectedIndex)
+
+            if (finalName != current.name) {
+                onPresetRenamed(current.name, finalName)
+            }
 
             val final = base.copy(
-                name = current.name,
+                name = finalName,
                 isAppProfileDefault = current.isAppProfileDefault,
                 ragnarokAccepted = accepted,
                 icon = current.icon,
@@ -535,8 +554,21 @@ class PresetController(
                 index = selectedIndex,
                 updatedPreset = final,
                 applyToUi = true,
-                notifyPresetApplied = true
+                notifyPresetApplied = true,
+                selectedNameAfterSave = finalName
             )
+        }
+    }
+
+    private fun ensureUniqueNameForUpdate(base: String, editingIndex: Int): String {
+        if (presets.indices.none { it != editingIndex && presets[it].name == base }) return base
+        var i = 2
+        while (true) {
+            val candidate = "$base ($i)"
+            if (presets.indices.none { it != editingIndex && presets[it].name == candidate }) {
+                return candidate
+            }
+            i++
         }
     }
 

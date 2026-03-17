@@ -18,7 +18,10 @@ class BatteryIndicatorAnimation(
     private val context: Context,
     initialBreatheWhenCharging: Boolean = false,
     initialIndicateChargingSpeed: Boolean = false,
-    initialFlashWhenReady: Boolean = false
+    initialFlashWhenReady: Boolean = false,
+    private val batteryLowColorOverride: Int? = null,
+    private val batteryMidColorOverride: Int? = null,
+    private val batteryHighColorOverride: Int? = null
 ) : LedAnimation(ledController) {
 
     companion object {
@@ -324,17 +327,20 @@ class BatteryIndicatorAnimation(
     }
 
     private fun calculateColorForBattery(percentage: Int): Int {
+        val lowColor = batteryLowColorOverride ?: Color.rgb(255, 0, 0)
+        val midColor = batteryMidColorOverride ?: Color.rgb(255, 255, 0)
+        val highColor = batteryHighColorOverride ?: Color.rgb(0, 255, 0)
         return when {
             percentage > 50 -> {
                 val factor = (percentage - 50) / 50f
-                lerpColor(Color.rgb(255, 255, 0), Color.rgb(0, 255, 0), factor)
+                lerpColor(midColor, highColor, factor)
             }
             percentage > 20 -> {
                 val factor = (percentage - 20) / 30f
-                lerpColor(Color.rgb(255, 0, 0), Color.rgb(255, 255, 0), factor)
+                lerpColor(lowColor, midColor, factor)
             }
             else -> {
-                Color.rgb(255, 0, 0)
+                lowColor
             }
         }
     }

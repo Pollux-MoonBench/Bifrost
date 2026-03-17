@@ -61,6 +61,12 @@ object PresetArchiveTransfer {
             presetJson.put("breatheWhenCharging", preset.breatheWhenCharging)
             presetJson.put("indicateChargingSpeed", preset.indicateChargingSpeed)
             presetJson.put("flashWhenReady", preset.flashWhenReady)
+            preset.batteryLowColorOverride?.let { presetJson.put("batteryLowColorOverride", it) }
+            preset.batteryMidColorOverride?.let { presetJson.put("batteryMidColorOverride", it) }
+            preset.batteryHighColorOverride?.let { presetJson.put("batteryHighColorOverride", it) }
+            preset.cpuCoolColorOverride?.let { presetJson.put("cpuCoolColorOverride", it) }
+            preset.cpuWarmColorOverride?.let { presetJson.put("cpuWarmColorOverride", it) }
+            preset.cpuHotColorOverride?.let { presetJson.put("cpuHotColorOverride", it) }
             presetJson.put("isAppProfileDefault", preset.isAppProfileDefault)
             presetJson.put("ragnarokAccepted", preset.ragnarokAccepted)
             presetJson.put("icon", preset.icon.name)
@@ -275,6 +281,12 @@ object PresetArchiveTransfer {
             breatheWhenCharging = obj.optBoolean("breatheWhenCharging", false),
             indicateChargingSpeed = obj.optBoolean("indicateChargingSpeed", false),
             flashWhenReady = obj.optBoolean("flashWhenReady", false),
+            batteryLowColorOverride = obj.optInt("batteryLowColorOverride").takeIf { obj.has("batteryLowColorOverride") },
+            batteryMidColorOverride = obj.optInt("batteryMidColorOverride").takeIf { obj.has("batteryMidColorOverride") },
+            batteryHighColorOverride = obj.optInt("batteryHighColorOverride").takeIf { obj.has("batteryHighColorOverride") },
+            cpuCoolColorOverride = obj.optInt("cpuCoolColorOverride").takeIf { obj.has("cpuCoolColorOverride") },
+            cpuWarmColorOverride = obj.optInt("cpuWarmColorOverride").takeIf { obj.has("cpuWarmColorOverride") },
+            cpuHotColorOverride = obj.optInt("cpuHotColorOverride").takeIf { obj.has("cpuHotColorOverride") },
             isAppProfileDefault = obj.optBoolean("isAppProfileDefault", false),
             ragnarokAccepted = obj.optBoolean("ragnarokAccepted", false),
             icon = icon,

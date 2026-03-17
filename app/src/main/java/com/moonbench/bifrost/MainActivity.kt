@@ -96,6 +96,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var importPresetsButton: MaterialButton
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
+    private lateinit var batteryLowColorButton: MaterialButton
+    private lateinit var batteryMidColorButton: MaterialButton
+    private lateinit var batteryHighColorButton: MaterialButton
+    private lateinit var cpuCoolColorButton: MaterialButton
+    private lateinit var cpuWarmColorButton: MaterialButton
+    private lateinit var cpuHotColorButton: MaterialButton
     private lateinit var brightnessSeekBar: SeekBar
     private lateinit var speedSeekBar: SeekBar
     private lateinit var smoothnessSeekBar: SeekBar
@@ -161,12 +167,32 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
         private const val EXTRA_DISPLAY_RELAUNCH_ATTEMPT = "display_relaunch_attempt"
         private const val MAX_DISPLAY_RELAUNCH_ATTEMPTS = 3
+        private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
+        private const val EXTRA_BATTERY_LOW_COLOR_OVERRIDE = "batteryLowColorOverride"
+        private const val EXTRA_BATTERY_MID_COLOR_OVERRIDE = "batteryMidColorOverride"
+        private const val EXTRA_BATTERY_HIGH_COLOR_OVERRIDE = "batteryHighColorOverride"
+        private const val EXTRA_CPU_COOL_COLOR_OVERRIDE = "cpuCoolColorOverride"
+        private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
+        private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
+
+        private val DEFAULT_BATTERY_LOW_COLOR = Color.rgb(255, 0, 0)
+        private val DEFAULT_BATTERY_MID_COLOR = Color.rgb(255, 255, 0)
+        private val DEFAULT_BATTERY_HIGH_COLOR = Color.rgb(0, 255, 0)
+        private val DEFAULT_CPU_COOL_COLOR = Color.rgb(0, 120, 255)
+        private val DEFAULT_CPU_WARM_COLOR = Color.rgb(255, 215, 0)
+        private val DEFAULT_CPU_HOT_COLOR = Color.rgb(255, 0, 0)
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
     private var selectedProfile: PerformanceProfile = PerformanceProfile.HIGH
     private var selectedColor: Int = Color.WHITE
     private var selectedRightColor: Int = Color.WHITE
+    private var selectedBatteryLowColorOverride: Int? = null
+    private var selectedBatteryMidColorOverride: Int? = null
+    private var selectedBatteryHighColorOverride: Int? = null
+    private var selectedCpuCoolColorOverride: Int? = null
+    private var selectedCpuWarmColorOverride: Int? = null
+    private var selectedCpuHotColorOverride: Int? = null
     private var selectedBrightness: Int = 255
     private var selectedSpeed: Float = 0.5f
     private var selectedSmoothness: Float = 0.5f
@@ -362,6 +388,12 @@ class MainActivity : AppCompatActivity() {
         importPresetsButton = findViewById(R.id.importPresetsButton)
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
+        batteryLowColorButton = findViewById(R.id.batteryLowColorButton)
+        batteryMidColorButton = findViewById(R.id.batteryMidColorButton)
+        batteryHighColorButton = findViewById(R.id.batteryHighColorButton)
+        cpuCoolColorButton = findViewById(R.id.cpuCoolColorButton)
+        cpuWarmColorButton = findViewById(R.id.cpuWarmColorButton)
+        cpuHotColorButton = findViewById(R.id.cpuHotColorButton)
         brightnessSeekBar = findViewById(R.id.brightnessSeekBar)
         speedSeekBar = findViewById(R.id.speedSeekBar)
         smoothnessSeekBar = findViewById(R.id.smoothnessSeekBar)
@@ -1843,6 +1875,110 @@ class MainActivity : AppCompatActivity() {
         colorButton.setBackgroundColor(selectedColor)
         rightColorButton.setOnClickListener { showColorPicker(isRight = true) }
         rightColorButton.setBackgroundColor(selectedRightColor)
+
+        batteryLowColorButton.setOnClickListener {
+            showOptionalColorPicker(selectedBatteryLowColorOverride ?: DEFAULT_BATTERY_LOW_COLOR) {
+                selectedBatteryLowColorOverride = it
+                refreshPaletteButtons()
+                triggerPaletteLiveUpdateIfRunning()
+            }
+        }
+        batteryMidColorButton.setOnClickListener {
+            showOptionalColorPicker(selectedBatteryMidColorOverride ?: DEFAULT_BATTERY_MID_COLOR) {
+                selectedBatteryMidColorOverride = it
+                refreshPaletteButtons()
+                triggerPaletteLiveUpdateIfRunning()
+            }
+        }
+        batteryHighColorButton.setOnClickListener {
+            showOptionalColorPicker(selectedBatteryHighColorOverride ?: DEFAULT_BATTERY_HIGH_COLOR) {
+                selectedBatteryHighColorOverride = it
+                refreshPaletteButtons()
+                triggerPaletteLiveUpdateIfRunning()
+            }
+        }
+        cpuCoolColorButton.setOnClickListener {
+            showOptionalColorPicker(selectedCpuCoolColorOverride ?: DEFAULT_CPU_COOL_COLOR) {
+                selectedCpuCoolColorOverride = it
+                refreshPaletteButtons()
+                triggerPaletteLiveUpdateIfRunning()
+            }
+        }
+        cpuWarmColorButton.setOnClickListener {
+            showOptionalColorPicker(selectedCpuWarmColorOverride ?: DEFAULT_CPU_WARM_COLOR) {
+                selectedCpuWarmColorOverride = it
+                refreshPaletteButtons()
+                triggerPaletteLiveUpdateIfRunning()
+            }
+        }
+        cpuHotColorButton.setOnClickListener {
+            showOptionalColorPicker(selectedCpuHotColorOverride ?: DEFAULT_CPU_HOT_COLOR) {
+                selectedCpuHotColorOverride = it
+                refreshPaletteButtons()
+                triggerPaletteLiveUpdateIfRunning()
+            }
+        }
+
+        // Long press resets the override to the built-in default gradient color.
+        batteryLowColorButton.setOnLongClickListener {
+            selectedBatteryLowColorOverride = null
+            refreshPaletteButtons()
+            triggerPaletteLiveUpdateIfRunning()
+            true
+        }
+        batteryMidColorButton.setOnLongClickListener {
+            selectedBatteryMidColorOverride = null
+            refreshPaletteButtons()
+            triggerPaletteLiveUpdateIfRunning()
+            true
+        }
+        batteryHighColorButton.setOnLongClickListener {
+            selectedBatteryHighColorOverride = null
+            refreshPaletteButtons()
+            triggerPaletteLiveUpdateIfRunning()
+            true
+        }
+        cpuCoolColorButton.setOnLongClickListener {
+            selectedCpuCoolColorOverride = null
+            refreshPaletteButtons()
+            triggerPaletteLiveUpdateIfRunning()
+            true
+        }
+        cpuWarmColorButton.setOnLongClickListener {
+            selectedCpuWarmColorOverride = null
+            refreshPaletteButtons()
+            triggerPaletteLiveUpdateIfRunning()
+            true
+        }
+        cpuHotColorButton.setOnLongClickListener {
+            selectedCpuHotColorOverride = null
+            refreshPaletteButtons()
+            triggerPaletteLiveUpdateIfRunning()
+            true
+        }
+
+        refreshPaletteButtons()
+    }
+
+    private fun showOptionalColorPicker(initialColor: Int, onColorPicked: (Int) -> Unit) {
+        colorPickerDialog.show(activity = this, initialColor = initialColor) { color ->
+            onColorPicked(color)
+        }
+    }
+
+    private fun triggerPaletteLiveUpdateIfRunning() {
+        if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
+            sendLiveUpdateToLedService()
+        }
+    }
+
+    private fun refreshPaletteButtons() {
+        batteryLowColorButton.setBackgroundColor(selectedBatteryLowColorOverride ?: DEFAULT_BATTERY_LOW_COLOR)
+        batteryMidColorButton.setBackgroundColor(selectedBatteryMidColorOverride ?: DEFAULT_BATTERY_MID_COLOR)
+        batteryHighColorButton.setBackgroundColor(selectedBatteryHighColorOverride ?: DEFAULT_BATTERY_HIGH_COLOR)
+        cpuCoolColorButton.setBackgroundColor(selectedCpuCoolColorOverride ?: DEFAULT_CPU_COOL_COLOR)
+        cpuWarmColorButton.setBackgroundColor(selectedCpuWarmColorOverride ?: DEFAULT_CPU_WARM_COLOR)
+        cpuHotColorButton.setBackgroundColor(selectedCpuHotColorOverride ?: DEFAULT_CPU_HOT_COLOR)
     }
 
     private fun setupBrightnessSeekBar() {
@@ -2276,7 +2412,13 @@ class MainActivity : AppCompatActivity() {
             useSingleColor = selectedUseSingleColor,
             breatheWhenCharging = selectedBreatheWhenCharging,
             indicateChargingSpeed = selectedIndicateChargingSpeed,
-            flashWhenReady = selectedFlashWhenReady
+            flashWhenReady = selectedFlashWhenReady,
+            batteryLowColorOverride = selectedBatteryLowColorOverride,
+            batteryMidColorOverride = selectedBatteryMidColorOverride,
+            batteryHighColorOverride = selectedBatteryHighColorOverride,
+            cpuCoolColorOverride = selectedCpuCoolColorOverride,
+            cpuWarmColorOverride = selectedCpuWarmColorOverride,
+            cpuHotColorOverride = selectedCpuHotColorOverride
         )
 
         presetController = PresetController(
@@ -2302,7 +2444,13 @@ class MainActivity : AppCompatActivity() {
                     useSingleColor = selectedUseSingleColor,
                     breatheWhenCharging = selectedBreatheWhenCharging,
                     indicateChargingSpeed = selectedIndicateChargingSpeed,
-                    flashWhenReady = selectedFlashWhenReady
+                    flashWhenReady = selectedFlashWhenReady,
+                    batteryLowColorOverride = selectedBatteryLowColorOverride,
+                    batteryMidColorOverride = selectedBatteryMidColorOverride,
+                    batteryHighColorOverride = selectedBatteryHighColorOverride,
+                    cpuCoolColorOverride = selectedCpuCoolColorOverride,
+                    cpuWarmColorOverride = selectedCpuWarmColorOverride,
+                    cpuHotColorOverride = selectedCpuHotColorOverride
                 )
             },
             applyPresetToUi = { preset ->
@@ -2320,6 +2468,12 @@ class MainActivity : AppCompatActivity() {
                 selectedBreatheWhenCharging = preset.breatheWhenCharging
                 selectedIndicateChargingSpeed = preset.indicateChargingSpeed
                 selectedFlashWhenReady = preset.flashWhenReady
+                selectedBatteryLowColorOverride = preset.batteryLowColorOverride
+                selectedBatteryMidColorOverride = preset.batteryMidColorOverride
+                selectedBatteryHighColorOverride = preset.batteryHighColorOverride
+                selectedCpuCoolColorOverride = preset.cpuCoolColorOverride
+                selectedCpuWarmColorOverride = preset.cpuWarmColorOverride
+                selectedCpuHotColorOverride = preset.cpuHotColorOverride
 
                 val types = LedAnimationType.values().toList()
                 animationSpinner.setSelection(types.indexOf(selectedAnimationType).coerceAtLeast(0))
@@ -2340,6 +2494,7 @@ class MainActivity : AppCompatActivity() {
                 breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
                 chargingSpeedIndicatorSwitch.isChecked = selectedIndicateChargingSpeed
                 flashWhenReadySwitch.isChecked = selectedFlashWhenReady
+                refreshPaletteButtons()
                 syncAppProfileDefaultSwitch()
 
                 updateParameterVisibility()
@@ -2367,6 +2522,9 @@ class MainActivity : AppCompatActivity() {
             },
             onRequestCustomPresetImage = { index ->
                 launchPresetImagePicker(index)
+            },
+            onPresetRenamed = { oldName, newName ->
+                appProfileManager.renamePresetInMappings(oldName, newName)
             }
         )
 
@@ -2549,6 +2707,8 @@ class MainActivity : AppCompatActivity() {
         val needsChargingSpeedIndicator = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR &&
             selectedBreatheWhenCharging
         val needsFlashWhenReady = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
+        val needsBatteryPalette = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
+        val needsCpuPalette = selectedAnimationType == LedAnimationType.CPU_TEMPERATURE
 
         val supportsBrightness = true
 
@@ -2567,7 +2727,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         performanceCard.visibility = if (needsProfile) View.VISIBLE else View.GONE
-        animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling || needsSingleColor || needsBreatheWhenCharging || needsChargingSpeedIndicator || needsFlashWhenReady) View.VISIBLE else View.GONE
+        animationCard.visibility = if (needsSpeed || needsSmoothness || needsSensitivity || needsSaturationBoost || needsCustomSampling || needsSingleColor || needsBreatheWhenCharging || needsChargingSpeedIndicator || needsFlashWhenReady || needsBatteryPalette || needsCpuPalette) View.VISIBLE else View.GONE
 
         if (animationCard.visibility == View.VISIBLE) {
             val speedLabel = findViewById<View>(R.id.speedLabel)
@@ -2579,6 +2739,8 @@ class MainActivity : AppCompatActivity() {
             val breatheWhenChargingRow = findViewById<View>(R.id.breatheWhenChargingRow)
             val chargingSpeedIndicatorRow = findViewById<View>(R.id.chargingSpeedIndicatorRow)
             val flashWhenReadyRow = findViewById<View>(R.id.flashWhenReadyRow)
+            val batteryPaletteRow = findViewById<View>(R.id.batteryPaletteRow)
+            val cpuPaletteRow = findViewById<View>(R.id.cpuPaletteRow)
             val ignoreletterbox = findViewById<View>(R.id.ignoreletterbox)
             var bothSticksSameColor = findViewById<View>(R.id.bothSticksSameColor)
 
@@ -2605,6 +2767,8 @@ class MainActivity : AppCompatActivity() {
             breatheWhenChargingRow?.visibility = if (needsBreatheWhenCharging) View.VISIBLE else View.GONE
             chargingSpeedIndicatorRow?.visibility = if (needsChargingSpeedIndicator) View.VISIBLE else View.GONE
             flashWhenReadyRow?.visibility = if (needsFlashWhenReady) View.VISIBLE else View.GONE
+            batteryPaletteRow?.visibility = if (needsBatteryPalette) View.VISIBLE else View.GONE
+            cpuPaletteRow?.visibility = if (needsCpuPalette) View.VISIBLE else View.GONE
         }
     }
 
@@ -2733,6 +2897,12 @@ class MainActivity : AppCompatActivity() {
             putExtra("breatheWhenCharging", selectedBreatheWhenCharging)
             putExtra("indicateChargingSpeed", selectedIndicateChargingSpeed)
             putExtra("flashWhenReady", selectedFlashWhenReady)
+            putOptionalColorExtra(this, EXTRA_BATTERY_LOW_COLOR_OVERRIDE, selectedBatteryLowColorOverride)
+            putOptionalColorExtra(this, EXTRA_BATTERY_MID_COLOR_OVERRIDE, selectedBatteryMidColorOverride)
+            putOptionalColorExtra(this, EXTRA_BATTERY_HIGH_COLOR_OVERRIDE, selectedBatteryHighColorOverride)
+            putOptionalColorExtra(this, EXTRA_CPU_COOL_COLOR_OVERRIDE, selectedCpuCoolColorOverride)
+            putOptionalColorExtra(this, EXTRA_CPU_WARM_COLOR_OVERRIDE, selectedCpuWarmColorOverride)
+            putOptionalColorExtra(this, EXTRA_CPU_HOT_COLOR_OVERRIDE, selectedCpuHotColorOverride)
             putExtra(
                 LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
                 selectedBatteryOverrideWhenPlugged
@@ -2769,6 +2939,12 @@ class MainActivity : AppCompatActivity() {
             putExtra("breatheWhenCharging", selectedBreatheWhenCharging)
             putExtra("indicateChargingSpeed", selectedIndicateChargingSpeed)
             putExtra("flashWhenReady", selectedFlashWhenReady)
+            putOptionalColorExtra(this, EXTRA_BATTERY_LOW_COLOR_OVERRIDE, selectedBatteryLowColorOverride)
+            putOptionalColorExtra(this, EXTRA_BATTERY_MID_COLOR_OVERRIDE, selectedBatteryMidColorOverride)
+            putOptionalColorExtra(this, EXTRA_BATTERY_HIGH_COLOR_OVERRIDE, selectedBatteryHighColorOverride)
+            putOptionalColorExtra(this, EXTRA_CPU_COOL_COLOR_OVERRIDE, selectedCpuCoolColorOverride)
+            putOptionalColorExtra(this, EXTRA_CPU_WARM_COLOR_OVERRIDE, selectedCpuWarmColorOverride)
+            putOptionalColorExtra(this, EXTRA_CPU_HOT_COLOR_OVERRIDE, selectedCpuHotColorOverride)
             putExtra(
                 LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
                 selectedBatteryOverrideWhenPlugged
@@ -2779,6 +2955,10 @@ class MainActivity : AppCompatActivity() {
             )
         }
         startService(intent)
+    }
+
+    private fun putOptionalColorExtra(intent: Intent, key: String, value: Int?) {
+        intent.putExtra(key, value ?: COLOR_OVERRIDE_UNSET)
     }
 
     private fun showFirstLaunchAlertIfNeeded() {

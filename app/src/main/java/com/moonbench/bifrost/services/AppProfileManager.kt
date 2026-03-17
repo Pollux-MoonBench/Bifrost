@@ -87,6 +87,14 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         saveMappings(mappings)
     }
 
+    fun renamePresetInMappings(oldName: String, newName: String) {
+        if (oldName == newName) return
+        val updated = getMappings().mapValues { (_, value) ->
+            if (value == oldName) newName else value
+        }
+        saveMappings(updated)
+    }
+
     private fun saveMappings(mappings: Map<String, String>) {
         val obj = JSONObject()
         mappings.forEach { (k, v) -> obj.put(k, v) }
@@ -283,6 +291,12 @@ class AppProfileManager(private val prefs: SharedPreferences) {
                 breatheWhenCharging = obj.optBoolean("breatheWhenCharging", false),
                 indicateChargingSpeed = obj.optBoolean("indicateChargingSpeed", false),
                 flashWhenReady = obj.optBoolean("flashWhenReady", false),
+                batteryLowColorOverride = obj.optInt("batteryLowColorOverride").takeIf { obj.has("batteryLowColorOverride") },
+                batteryMidColorOverride = obj.optInt("batteryMidColorOverride").takeIf { obj.has("batteryMidColorOverride") },
+                batteryHighColorOverride = obj.optInt("batteryHighColorOverride").takeIf { obj.has("batteryHighColorOverride") },
+                cpuCoolColorOverride = obj.optInt("cpuCoolColorOverride").takeIf { obj.has("cpuCoolColorOverride") },
+                cpuWarmColorOverride = obj.optInt("cpuWarmColorOverride").takeIf { obj.has("cpuWarmColorOverride") },
+                cpuHotColorOverride = obj.optInt("cpuHotColorOverride").takeIf { obj.has("cpuHotColorOverride") },
                 ragnarokAccepted = obj.optBoolean("ragnarokAccepted", false),
                 icon = icon,
                 customEmoji = customEmoji,

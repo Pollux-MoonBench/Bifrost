@@ -970,6 +970,154 @@
                             app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:id="@+id/batteryPaletteRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/bifrost_spacing_md"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="BATTERY COLORS"
+                            android:textColor="@color/bifrost_text_secondary"
+                            android:textSize="10sp"
+                            android:letterSpacing="0.1" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Long press any swatch to reset its default"
+                            android:textColor="@color/bifrost_text_secondary"
+                            android:textSize="8sp" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/batteryLowColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="LOW"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="10sp"
+                                android:backgroundTint="@color/bifrost_surface"
+                                app:cornerRadius="10dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginEnd="4dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/batteryMidColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="MID"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="10sp"
+                                android:backgroundTint="@color/bifrost_surface"
+                                app:cornerRadius="10dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginStart="2dp"
+                                android:layout_marginEnd="2dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/batteryHighColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="HIGH"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="10sp"
+                                android:backgroundTint="@color/bifrost_surface"
+                                app:cornerRadius="10dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginStart="4dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/cpuPaletteRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/bifrost_spacing_md"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="CPU TEMP COLORS"
+                            android:textColor="@color/bifrost_text_secondary"
+                            android:textSize="10sp"
+                            android:letterSpacing="0.1" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Long press any swatch to reset its default"
+                            android:textColor="@color/bifrost_text_secondary"
+                            android:textSize="8sp" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/cpuCoolColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="COOL"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="10sp"
+                                android:backgroundTint="@color/bifrost_surface"
+                                app:cornerRadius="10dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginEnd="4dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/cpuWarmColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="WARM"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="10sp"
+                                android:backgroundTint="@color/bifrost_surface"
+                                app:cornerRadius="10dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginStart="2dp"
+                                android:layout_marginEnd="2dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/cpuHotColorButton"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="HOT"
+                                android:textColor="@color/bifrost_text"
+                                android:textSize="10sp"
+                                android:backgroundTint="@color/bifrost_surface"
+                                app:cornerRadius="10dp"
+                                app:strokeWidth="1dp"
+                                app:strokeColor="@color/bifrost_accent"
+                                android:layout_marginStart="4dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

@@ -8,7 +8,10 @@ import java.io.File
 import kotlin.math.roundToInt
 
 class CpuTemperatureAnimation(
-    ledController: LedController
+    ledController: LedController,
+    private val coolColorOverride: Int? = null,
+    private val warmColorOverride: Int? = null,
+    private val hotColorOverride: Int? = null
 ) : LedAnimation(ledController) {
 
     companion object {
@@ -110,6 +113,23 @@ class CpuTemperatureAnimation(
     }
 
     private fun colorForTemperature(temperatureC: Float): Int {
+        if (coolColorOverride != null || warmColorOverride != null || hotColorOverride != null) {
+            val cool = coolColorOverride ?: BLUE
+            val warm = warmColorOverride ?: YELLOW
+            val hot = hotColorOverride ?: RED
+
+            return when {
+                temperatureC <= 55f -> {
+                    val factor = ((temperatureC - 35f) / 20f).coerceIn(0f, 1f)
+                    lerpColor(cool, warm, factor)
+                }
+                else -> {
+                    val factor = ((temperatureC - 55f) / 20f).coerceIn(0f, 1f)
+                    lerpColor(warm, hot, factor)
+                }
+            }
+        }
+
         val points = TEMP_POINTS
         if (temperatureC <= points.first().temperatureC) return points.first().color
         if (temperatureC >= points.last().temperatureC) return points.last().color
