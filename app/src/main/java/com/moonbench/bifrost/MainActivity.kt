@@ -143,6 +143,7 @@ class MainActivity : AppCompatActivity() {
         private const val COVER_FLOW_SNAP_SETTLE_DELAY_MS = 100L
         private const val APP_PROFILE_SYNC_INTERVAL_MS = 1200L
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
+        private const val PREF_APP_PROFILE_INFO_SHOWN = "app_profile_info_shown"
 
         // Note: this key is shared with PresetController for backward compatibility.
         // Do not change unless updating persistence logic across components.
@@ -456,10 +457,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         presetCoverFlowScroll.setOnTouchListener { _, event ->
-            if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
-                return@setOnTouchListener true
-            }
-
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     isCoverFlowTouching = true
@@ -638,8 +635,14 @@ class MainActivity : AppCompatActivity() {
                 if (!lastPresetName.isNullOrBlank()) {
                     val presets = presetController.getPresets()
                     val index = presets.indexOfFirst { it.name == lastPresetName }
-                    if (index in presets.indices && index != selectedCoverFlowIndex) {
-                        selectPresetFromCoverFlow(index, animate = true, applyPreset = false)
+                    if (index in presets.indices) {
+                        selectedCoverFlowIndex = index
+                        val selectedPreset = presets[index]
+                        activePresetNameText.text = selectedPreset.name
+                        activePresetAnimationText.text =
+                            formatCardAnimationLabel(selectedPreset.animationType.name)
+                        activePresetProfileText.text =
+                            formatCardProfileLabel(selectedPreset.performanceProfile.name)
                     }
                 }
 
@@ -698,6 +701,7 @@ class MainActivity : AppCompatActivity() {
                 if (!isCoverFlowDragging) {
                     suppressNextCoverFlowSnap = true
                     selectPresetFromCoverFlow(index, animate = true, applyPreset = false)
+                    presetController.selectPresetForEditing(index)
                     openSettingsOverlay()
                 }
             }
@@ -1082,13 +1086,18 @@ class MainActivity : AppCompatActivity() {
                 card.scaleX = 1f
                 card.scaleY = 1f
                 card.alpha = if (autoSwitchEnabled) {
-                    if (isSelected) 0.72f else 0.26f
+                    0.3f
                 } else {
                     if (isSelected) 1f else 0.5f
                 }
 
-                card.strokeWidth = if (isSelected) dpToPx(2) else dpToPx(1)
-                card.setStrokeColor(if (isSelected) accentColor else secondaryColor)
+                if (autoSwitchEnabled) {
+                    card.strokeWidth = dpToPx(1)
+                    card.setStrokeColor(secondaryColor)
+                } else {
+                    card.strokeWidth = if (isSelected) dpToPx(2) else dpToPx(1)
+                    card.setStrokeColor(if (isSelected) accentColor else secondaryColor)
+                }
             }
             return
         }
@@ -1116,17 +1125,18 @@ class MainActivity : AppCompatActivity() {
             card.scaleX = scale
             card.scaleY = scale
             card.alpha = if (autoSwitchEnabled) {
-                if (isSelected) {
-                    0.76f
-                } else {
-                    0.22f + (0.12f * (1f - normalizedDistance))
-                }
+                0.22f + (0.12f * (1f - normalizedDistance))
             } else {
                 0.5f + (0.5f * (1f - normalizedDistance))
             }
 
-            card.strokeWidth = if (isSelected) dpToPx(2) else dpToPx(1)
-            card.setStrokeColor(if (isSelected) accentColor else secondaryColor)
+            if (autoSwitchEnabled) {
+                card.strokeWidth = dpToPx(1)
+                card.setStrokeColor(secondaryColor)
+            } else {
+                card.strokeWidth = if (isSelected) dpToPx(2) else dpToPx(1)
+                card.setStrokeColor(if (isSelected) accentColor else secondaryColor)
+            }
         }
     }
 
@@ -1162,8 +1172,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateManualPresetSwitchingUi(autoSwitchEnabled: Boolean) {
-        presetCoverFlowScroll.isEnabled = !autoSwitchEnabled
-        presetCoverFlowScroll.scrollLocked = autoSwitchEnabled
+        presetCoverFlowScroll.isEnabled = true
+        presetCoverFlowScroll.scrollLocked = false
         activePresetInfoCard.alpha = 1f
         activePresetStatusBadge.visibility = if (autoSwitchEnabled) View.VISIBLE else View.GONE
         presetCoverFlowScroll.alpha = if (autoSwitchEnabled) 0.95f else 1f
@@ -1500,6 +1510,7 @@ class MainActivity : AppCompatActivity() {
         appProfileManager.resetLastForegroundPackage()
         syncAppProfileSwitches(isChecked)
         updateManualPresetSwitchingUi(isChecked)
+        maybeShowAppProfileInfoDialog(isChecked)
 
         if (!LEDService.isRunning || serviceController.isServiceTransitioning) return
 
@@ -2641,6 +2652,40 @@ class MainActivity : AppCompatActivity() {
             }
             .sortedBy { it.appName.lowercase() }
             .toList()
+    }
+
+    private fun maybeShowAppProfileInfoDialog(isEnabled: Boolean) {
+        if (!isEnabled) return
+        if (prefs.getBoolean(PREF_APP_PROFILE_INFO_SHOWN, false)) return
+
+        val title = resolveStringByName("app_profile_info_title", "APP PROFILE MODE")
+        val subtitle = resolveStringByName(
+            "app_profile_info_subtitle",
+            "Animations now switch automatically based on the foreground app."
+        )
+        val body = resolveStringByName(
+            "app_profile_info_body",
+            "In this mode, swiping presets will not change the running animation. Assign apps to presets in settings to control what plays automatically."
+        )
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = title,
+            subtitle = subtitle,
+            body = body,
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {
+                prefs.edit().putBoolean(PREF_APP_PROFILE_INFO_SHOWN, true).apply()
+            }
+        )
+    }
+
+    private fun resolveStringByName(resourceName: String, fallback: String): String {
+        val resId = resources.getIdentifier(resourceName, "string", packageName)
+        if (resId == 0) return fallback
+        return runCatching { getString(resId) }.getOrDefault(fallback)
     }
 }
 

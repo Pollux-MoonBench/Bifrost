@@ -53,6 +53,7 @@ class LEDService : Service() {
     companion object {
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
         private const val ACTIVITY_CHECK_INTERVAL_MS = 2000L
+        private const val ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS = 700L
         private const val TRANSITION_RETRY_DELAY_MS = 200L
         private const val TRANSITION_START_DELAY_MS = 100L
         private const val PROJECTION_RESTART_DELAY_MS = 150L
@@ -131,7 +132,12 @@ class LEDService : Service() {
                 cleanupAndStop()
             } else {
                 checkAutoProfileSwitch()
-                handler.postDelayed(this, ACTIVITY_CHECK_INTERVAL_MS)
+                val nextDelay = if (appProfileManager.isEnabled) {
+                    ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
+                } else {
+                    ACTIVITY_CHECK_INTERVAL_MS
+                }
+                handler.postDelayed(this, nextDelay)
             }
         }
     }
