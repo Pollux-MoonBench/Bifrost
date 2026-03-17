@@ -430,7 +430,10 @@ class PresetController(
 
     private fun resolveInitialPreset(initialConfig: LedPreset): LedPreset {
         if (presets.isEmpty()) {
-            val defaultPreset = initialConfig.copy(name = "Default")
+            val defaultPreset = initialConfig.copy(
+                name = "Default",
+                isAppProfileDefault = true
+            )
             presets.add(defaultPreset)
             savePresetsToPrefs()
             saveLastPresetName(defaultPreset.name)

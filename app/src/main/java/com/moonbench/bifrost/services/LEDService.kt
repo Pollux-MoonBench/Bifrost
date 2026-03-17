@@ -45,7 +45,6 @@ import com.moonbench.bifrost.animations.StaticAnimation
 import com.moonbench.bifrost.animations.StrobeAnimation
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
-import com.moonbench.bifrost.LedPreset
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LEDService : Service() {
@@ -258,7 +257,14 @@ class LEDService : Service() {
 
         refreshPluggedStateSnapshot()
 
-        restartAnimationForCurrentState(force = true)
+        if (appProfileManager.isEnabled) {
+            checkAutoProfileSwitch()
+            if (!isAppProfileSuppressed && currentAnimation == null) {
+                restartAnimationForCurrentState(force = true)
+            }
+        } else {
+            restartAnimationForCurrentState(force = true)
+        }
 
         return START_NOT_STICKY
     }
