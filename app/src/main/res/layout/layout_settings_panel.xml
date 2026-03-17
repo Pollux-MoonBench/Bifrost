@@ -113,6 +113,43 @@
                 app:strokeWidth="1dp" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/exportPresetsButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:text="EXPORT"
+            android:textSize="11sp"
+            android:letterSpacing="0.05"
+            android:textColor="@color/bifrost_text"
+            android:backgroundTint="@color/bifrost_surface"
+            app:cornerRadius="10dp"
+            app:strokeWidth="1dp"
+            app:strokeColor="@color/bifrost_accent" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/importPresetsButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="IMPORT"
+            android:textSize="11sp"
+            android:letterSpacing="0.05"
+            android:textColor="@color/bifrost_text"
+            android:backgroundTint="@color/bifrost_surface"
+            app:cornerRadius="10dp"
+            app:strokeWidth="1dp"
+            app:strokeColor="@color/bifrost_accent" />
+    </LinearLayout>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"

@@ -83,6 +83,10 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         saveMappings(mappings)
     }
 
+    fun replaceMappings(mappings: Map<String, String>) {
+        saveMappings(mappings)
+    }
+
     private fun saveMappings(mappings: Map<String, String>) {
         val obj = JSONObject()
         mappings.forEach { (k, v) -> obj.put(k, v) }

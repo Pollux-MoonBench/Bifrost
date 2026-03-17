@@ -139,6 +139,24 @@ class PresetController(
         markIsUpdatingFromPreset(false)
     }
 
+    fun replaceAllPresetsFromImport(importedPresets: List<LedPreset>): Boolean {
+        if (importedPresets.isEmpty()) return false
+
+        presets.clear()
+        presets.addAll(importedPresets)
+        normalizeAppProfileDefaultPreset()
+
+        val firstPreset = presets.first()
+        savePresetsToPrefs()
+        saveLastPresetName(firstPreset.name)
+        refreshPresetSpinner(firstPreset.name)
+
+        markIsUpdatingFromPreset(true)
+        applyPresetToUi(firstPreset)
+        markIsUpdatingFromPreset(false)
+        return true
+    }
+
     fun movePreset(fromIndex: Int, toIndex: Int): Boolean {
         if (fromIndex !in presets.indices || toIndex !in presets.indices) return false
         if (fromIndex == toIndex) return false

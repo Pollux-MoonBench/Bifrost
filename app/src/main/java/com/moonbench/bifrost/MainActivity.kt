@@ -74,6 +74,9 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -89,6 +92,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var modifyPresetButton: MaterialButton
     private lateinit var deletePresetButton: MaterialButton
     private lateinit var customizePresetArtworkButton: MaterialButton
+    private lateinit var exportPresetsButton: MaterialButton
+    private lateinit var importPresetsButton: MaterialButton
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
     private lateinit var brightnessSeekBar: SeekBar
@@ -288,6 +293,18 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "${updatedPreset.name} image updated", Toast.LENGTH_SHORT).show()
         }
 
+    private val exportPresetsLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            exportPresetBundle(uri)
+        }
+
+    private val importPresetsLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            importPresetBundle(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -341,6 +358,8 @@ class MainActivity : AppCompatActivity() {
         modifyPresetButton = findViewById(R.id.modifyPresetButton)
         deletePresetButton = findViewById(R.id.deletePresetButton)
         customizePresetArtworkButton = findViewById(R.id.customizePresetArtworkButton)
+        exportPresetsButton = findViewById(R.id.exportPresetsButton)
+        importPresetsButton = findViewById(R.id.importPresetsButton)
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
         brightnessSeekBar = findViewById(R.id.brightnessSeekBar)
@@ -2355,10 +2374,120 @@ class MainActivity : AppCompatActivity() {
         refreshCoverFlowFromPresets()
         syncAppProfileDefaultSwitch()
 
+        exportPresetsButton.setOnClickListener {
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            exportPresetsLauncher.launch("bifrost_presets_$timestamp.bifrost_preset")
+        }
+
+        importPresetsButton.setOnClickListener {
+            importPresetsLauncher.launch(arrayOf("*/*"))
+        }
+
         // If the app switching feature is already enabled, start syncing the UI after presets load.
         if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
             startAppProfileSync()
         }
+    }
+
+    private fun exportPresetBundle(uri: Uri) {
+        val result = runCatching {
+            PresetArchiveTransfer.exportToUri(
+                context = this,
+                uri = uri,
+                presets = presetController.getPresets(),
+                mappings = appProfileManager.getMappings()
+            )
+        }.getOrElse {
+            Toast.makeText(this, "Preset export failed", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (result.warnings.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Exported ${result.presetCount} presets (${result.iconCount} icons)",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        val warningText = result.warnings.joinToString("\n")
+        BifrostAlertDialog().show(
+            activity = this,
+            title = "EXPORT COMPLETED",
+            subtitle = "Exported ${result.presetCount} presets with ${result.warnings.size} warning(s)",
+            body = warningText,
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {}
+        )
+    }
+
+    private fun importPresetBundle(uri: Uri) {
+        val result = runCatching {
+            PresetArchiveTransfer.importFromUri(this, uri)
+        }.getOrElse {
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "IMPORT FAILED",
+                subtitle = "Selected file could not be imported",
+                body = it.message,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        if (result.presets.isNotEmpty()) {
+            presetController.replaceAllPresetsFromImport(result.presets)
+            appProfileManager.replaceMappings(result.mappings)
+            refreshCoverFlowFromPresets()
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                if (appProfileManager.isEnabled) {
+                    appProfileManager.resetLastForegroundPackage()
+                    requestImmediateAppProfileResolution()
+                } else {
+                    startService(createLedServiceIntent())
+                }
+            }
+        }
+
+        val totalIssues = result.errors.size + result.warnings.size
+        val subtitle = if (result.presets.isEmpty()) {
+            "No presets imported"
+        } else {
+            "Imported ${result.presets.size} presets"
+        }
+
+        val body = buildString {
+            if (result.errors.isNotEmpty()) {
+                append("Errors:\n")
+                append(result.errors.joinToString("\n"))
+            }
+            if (result.warnings.isNotEmpty()) {
+                if (isNotEmpty()) append("\n\n")
+                append("Warnings:\n")
+                append(result.warnings.joinToString("\n"))
+            }
+            if (isEmpty()) {
+                append("Import completed successfully.")
+            }
+        }
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = if (totalIssues == 0) "IMPORT COMPLETED" else "IMPORT COMPLETED WITH NOTES",
+            subtitle = subtitle,
+            body = body,
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {}
+        )
     }
 
     private fun updateParameterVisibility() {
