@@ -59,7 +59,7 @@ class AmbiAuroraAnimation(
     private val updateInterval: Long
         get() = if (profile.intervalMs == 0L) 16L else profile.intervalMs
 
-    private val combinedUpdateRunnable = object : Runnable {
+    private val ledUpdateRunnable = object : Runnable {
         override fun run() {
             if (!isRunning) return
 
@@ -73,7 +73,7 @@ class AmbiAuroraAnimation(
                 }
             }
 
-            if (hasAudioUpdate) {
+            if (hasAudioUpdate || currentBrightness > 0) {
                 hasAudioUpdate = false
                 val intensity = pendingIntensity.coerceIn(0f, 1f)
                 val rising = intensity > smoothedIntensity
@@ -125,8 +125,7 @@ class AmbiAuroraAnimation(
             priority = Thread.NORM_PRIORITY + 1
         }
         updateHandler = Handler(updateThread!!.looper)
-
-        updateHandler?.post(combinedUpdateRunnable)
+        updateHandler?.post(ledUpdateRunnable)
 
         screenAnalyzer = ScreenAnalyzer(
             mediaProjection,
@@ -154,7 +153,7 @@ class AmbiAuroraAnimation(
         hasColorUpdate = false
         hasAudioUpdate = false
 
-        updateHandler?.removeCallbacks(combinedUpdateRunnable)
+        updateHandler?.removeCallbacks(ledUpdateRunnable)
         screenAnalyzer?.stop()
         screenAnalyzer = null
         audioAnalyzer?.stop()
