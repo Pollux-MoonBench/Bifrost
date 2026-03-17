@@ -90,8 +90,8 @@
                         android:id="@+id/serviceToggle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        app:thumbTint="@color/bifrost_accent_light"
-                        app:trackTint="@color/bifrost_surface" />
+                        app:thumbTint="@color/switch_thumb_tint"
+                        app:trackTint="@color/switch_track_tint" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -116,8 +116,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="4dp"
-                    app:thumbTint="@color/bifrost_accent_light"
-                    app:trackTint="@color/bifrost_surface" />
+                    app:thumbTint="@color/switch_thumb_tint"
+                    app:trackTint="@color/switch_track_tint" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
