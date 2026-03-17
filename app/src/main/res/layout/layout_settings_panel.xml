@@ -179,8 +179,8 @@
                             android:id="@+id/autoStartupSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -218,8 +218,8 @@
                             android:id="@+id/pluggedBatteryOverrideSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -257,8 +257,8 @@
                             android:id="@+id/persistentNotificationSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
 
@@ -329,8 +329,8 @@
                             android:id="@+id/thorLaunchBottomSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -367,8 +367,8 @@
                             android:id="@+id/thorAmbilightBottomSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                 </LinearLayout>
@@ -468,8 +468,8 @@
                             android:id="@+id/appProfileSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -546,8 +546,8 @@
                             android:id="@+id/appProfileDefaultSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -767,8 +767,8 @@
                             android:id="@+id/customSamplingSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -806,8 +806,8 @@
                             android:id="@+id/singleColorSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -847,8 +847,8 @@
                             android:id="@+id/breatheWhenChargingSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -888,8 +888,8 @@
                             android:id="@+id/chargingSpeedIndicatorSwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -929,8 +929,8 @@
                             android:id="@+id/flashWhenReadySwitch"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            app:thumbTint="@color/bifrost_accent_light"
-                            app:trackTint="@color/bifrost_surface" />
+                            app:thumbTint="@color/switch_thumb_tint"
+                            app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
                 </LinearLayout>
