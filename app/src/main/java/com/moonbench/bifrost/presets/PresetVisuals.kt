@@ -11,6 +11,7 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.util.UUID
 
 data class PresetVisualSpec(
@@ -147,6 +148,32 @@ object PresetImageStorage {
     fun deleteIfExists(context: Context, fileName: String?) {
         if (fileName.isNullOrBlank()) return
         resolveFile(context, fileName).takeIf { it.exists() }?.delete()
+    }
+
+    fun openIconInputStream(context: Context, fileName: String): InputStream? {
+        val file = runCatching { resolveFile(context, fileName) }.getOrNull() ?: return null
+        if (!file.exists()) return null
+        return runCatching { file.inputStream() }.getOrNull()
+    }
+
+    fun importIconFromBytes(context: Context, sourceName: String, bytes: ByteArray): String? {
+        if (bytes.isEmpty() || bytes.size > MAX_IMAGE_BYTES) return null
+
+        val safeExtension = sourceName
+            .substringAfterLast('.', "img")
+            .lowercase()
+            .filter { it.isLetterOrDigit() }
+            .ifBlank { "img" }
+            .take(8)
+
+        val generatedName =
+            "preset_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.$safeExtension"
+        val targetFile = resolveFile(context, generatedName)
+
+        return runCatching {
+            FileOutputStream(targetFile).use { it.write(bytes) }
+            targetFile.name
+        }.getOrNull()
     }
 
     fun loadBitmap(context: Context, fileName: String, targetSizePx: Int): Bitmap? {
