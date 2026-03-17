@@ -34,6 +34,8 @@ class AppProfileManager(private val prefs: SharedPreferences) {
     private var lastForegroundPackage: String? = null
     @Volatile
     private var lastResolvedPresetName: String? = null
+    @Volatile
+    private var hasResolvedPresetOnce: Boolean = false
     private var cachedMappingsRaw: String? = null
     private var cachedMappings: Map<String, String> = emptyMap()
     private var lastForegroundQueryAt: Long = 0L
@@ -205,8 +207,9 @@ class AppProfileManager(private val prefs: SharedPreferences) {
             mappings[currentPackage] ?: fallbackPresetName
         }
 
-        if (presetName == lastResolvedPresetName) return null
+        if (hasResolvedPresetOnce && presetName == lastResolvedPresetName) return null
         lastResolvedPresetName = presetName
+        hasResolvedPresetOnce = true
 
         val preset = presetName?.let { loadPresetByName(it) }
         return SwitchResult(presetName = presetName, preset = preset)
@@ -215,6 +218,7 @@ class AppProfileManager(private val prefs: SharedPreferences) {
     fun resetLastForegroundPackage() {
         lastForegroundPackage = null
         lastResolvedPresetName = null
+        hasResolvedPresetOnce = false
         cachedForegroundPackage = null
         lastForegroundQueryAt = 0L
         lastHomePackagesQueryAt = 0L
