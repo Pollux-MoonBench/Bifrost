@@ -181,6 +181,8 @@ class MainActivity : AppCompatActivity() {
         private val DEFAULT_CPU_COOL_COLOR = Color.rgb(0, 120, 255)
         private val DEFAULT_CPU_WARM_COLOR = Color.rgb(255, 215, 0)
         private val DEFAULT_CPU_HOT_COLOR = Color.rgb(255, 0, 0)
+
+        const val EXTRA_GRANT_PROJECTION_FOR_APP_PROFILE = "grant_projection_for_app_profile"
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
@@ -207,6 +209,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedPersistentNotification: Boolean = true
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
+    private var isGrantingProjectionForAppProfile = false
     private var rainbowDrawable: AnimatedRainbowDrawable? = null
     private var titleIntroAnimator: ValueAnimator? = null
     private var headerSettleAnimator: ValueAnimator? = null
@@ -273,10 +276,30 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK && result.data != null) {
                 mediaProjectionResultCode = result.resultCode
                 mediaProjectionData = result.data
-                serviceController.startDebounced { createLedServiceIntent() }
+
+                if (isGrantingProjectionForAppProfile) {
+                    isGrantingProjectionForAppProfile = false
+                    // Supply projection to the running service without restarting it.
+                    // The correct preset will be applied when the user returns to the
+                    // mapped app (the periodic check will resolve it automatically).
+                    if (LEDService.isRunning) {
+                        val supplyIntent = Intent(this, LEDService::class.java).apply {
+                            action = LEDService.ACTION_SUPPLY_PROJECTION
+                            putExtra("resultCode", mediaProjectionResultCode)
+                            putExtra("data", mediaProjectionData)
+                        }
+                        startService(supplyIntent)
+                    }
+                } else {
+                    serviceController.startDebounced { createLedServiceIntent() }
+                }
             } else {
-                isAwaitingPermissionResult = false
-                serviceToggle.isChecked = false
+                val wasAppProfileGrant = isGrantingProjectionForAppProfile
+                isGrantingProjectionForAppProfile = false
+                if (!wasAppProfileGrant) {
+                    isAwaitingPermissionResult = false
+                    serviceToggle.isChecked = false
+                }
                 Toast.makeText(
                     this,
                     "Screen capture permission required",
@@ -356,6 +379,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         initializeApp()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAppProfileProjectionIntent(intent)
+    }
+
+    private fun handleAppProfileProjectionIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_GRANT_PROJECTION_FOR_APP_PROFILE, false) != true) return
+        // Consume the flag so it doesn't re-trigger on configuration change.
+        intent.removeExtra(EXTRA_GRANT_PROJECTION_FOR_APP_PROFILE)
+
+        if (!LEDService.isRunning) return
+        if (!::mediaProjectionManager.isInitialized) return
+
+        isGrantingProjectionForAppProfile = true
+        requestScreenCapturePermission()
     }
 
     private fun initializeApp() {
@@ -480,6 +521,10 @@ class MainActivity : AppCompatActivity() {
         maybeAutoStartHeimdallOnLaunch()
 
         isAppInitialized = true
+
+        // Handle the case where the activity was freshly created from a projection-prompt
+        // notification tap (service is running but activity wasn't alive).
+        handleAppProfileProjectionIntent(intent)
     }
 
     private fun setupBackNavigationHandler() {
@@ -2507,7 +2552,13 @@ class MainActivity : AppCompatActivity() {
             },
             onPresetApplied = {
                 if (LEDService.isRunning) {
-                    if (selectedAnimationType.needsMediaProjection) {
+                    // When app-profile mode is active, animation is determined by
+                    // foreground-app mappings, not the UI selection.  Do NOT prompt
+                    // for screen-capture permission from the UI.
+                    if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
+                        // Just keep the service running; the periodic check will
+                        // resolve the correct preset.
+                    } else if (selectedAnimationType.needsMediaProjection) {
                         if (mediaProjectionResultCode == null || mediaProjectionData == null) {
                             handleMediaProjectionRequirement()
                         } else {
@@ -2845,6 +2896,14 @@ class MainActivity : AppCompatActivity() {
             requestNotificationPermission()
             return
         }
+        // When app-profile mode is active the animation is determined by
+        // foreground-app mappings, not the UI selection.  Skip the media-
+        // projection gate – if the resolved preset needs it later, the
+        // service will show a notification prompting the user to grant it.
+        if (appProfileManager.isEnabled) {
+            serviceController.startDebounced { createLedServiceIntent() }
+            return
+        }
         if (selectedAnimationType.needsMediaProjection) {
             if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                 serviceController.startDebounced { createLedServiceIntent() }
@@ -2916,7 +2975,16 @@ class MainActivity : AppCompatActivity() {
                 LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
                 HeimdallStartupManager.isAutoStartEnabled(prefs)
             )
-            if (selectedAnimationType.needsMediaProjection) {
+            // When app profile mode is active, always include MP data if available,
+            // regardless of the UI-selected animation type.  The actual animation is
+            // determined by foreground-app mappings and may need MP even when the
+            // UI-visible preset does not.
+            val shouldIncludeMP = if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
+                mediaProjectionResultCode != null && mediaProjectionData != null
+            } else {
+                selectedAnimationType.needsMediaProjection
+            }
+            if (shouldIncludeMP) {
                 putExtra("resultCode", mediaProjectionResultCode)
                 putExtra("data", mediaProjectionData)
             }
