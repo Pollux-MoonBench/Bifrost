@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.os.Process
+import android.util.Log
 import com.moonbench.bifrost.LedPreset
 import com.moonbench.bifrost.PresetIcon
 import com.moonbench.bifrost.animations.LedAnimationType
@@ -23,8 +24,12 @@ class AppProfileManager(private val prefs: SharedPreferences) {
     )
 
     companion object {
+        private const val TAG = "BIBI"
         private const val PREF_KEY_MAPPINGS = "app_profile_mappings"
         private const val PREF_KEY_AUTO_SWITCH_ENABLED = "auto_switch_enabled"
+        private const val PREF_KEY_PENDING_PROJECTION_PACKAGE = "pending_projection_package"
+        private const val PREF_KEY_PENDING_PROJECTION_PRESET = "pending_projection_preset"
+        private const val PREF_KEY_PENDING_PROJECTION_NOTIFIED = "pending_projection_notified"
         private const val FOREGROUND_QUERY_WINDOW_MS = 2500L
         private const val FOREGROUND_QUERY_CACHE_MS = 350L
         private const val HOME_PACKAGES_CACHE_MS = 10_000L
@@ -126,14 +131,29 @@ class AppProfileManager(private val prefs: SharedPreferences) {
 
         val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 
-        // UsageEvents is typically more reactive than aggregated UsageStats.
+        // UsageEvents is the most reactive & accurate source for foreground detection.
         val latestFromEvents = resolveForegroundFromEvents(usm, now)
         if (!latestFromEvents.isNullOrBlank()) {
             lastForegroundQueryAt = now
             cachedForegroundPackage = latestFromEvents
+            Log.d(TAG, "getForegroundPackage: resolved from events → '$latestFromEvents'")
             return latestFromEvents
         }
 
+        // No recent foreground events (e.g. user has been on home screen for a while
+        // and the events window has scrolled past).  If we already have a cached
+        // result (from a previous events-based detection), keep using it – falling
+        // back to queryUsageStats here would return the *most recently used app*
+        // (by lastTimeUsed), which is stale and wrong (e.g. it would return app A
+        // even though the user is on the home screen).
+        if (cachedForegroundPackage != null) {
+            lastForegroundQueryAt = now
+            Log.d(TAG, "getForegroundPackage: no recent events, keeping cached → '$cachedForegroundPackage'")
+            return cachedForegroundPackage
+        }
+
+        // First-time bootstrap only: no events and no cache yet.
+        // Use queryUsageStats as a last resort to seed the initial value.
         val stats = runCatching {
             usm.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
@@ -145,10 +165,12 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         lastForegroundQueryAt = now
         if (stats.isNullOrEmpty()) {
             cachedForegroundPackage = null
+            Log.d(TAG, "getForegroundPackage: bootstrap — no usage stats → null")
             return null
         }
         val latest = stats.maxByOrNull { it.lastTimeUsed }?.packageName
         cachedForegroundPackage = latest
+        Log.d(TAG, "getForegroundPackage: bootstrap from stats → '$latest'")
         return latest
     }
 
@@ -186,36 +208,63 @@ class AppProfileManager(private val prefs: SharedPreferences) {
      * Returns null when no effective change happened since the previous check.
      */
     fun checkForSwitch(context: Context): SwitchResult? {
-        if (!isEnabled) return null
-        if (!hasUsageStatsPermission(context)) return null
+        if (!isEnabled) {
+            Log.d(TAG, "checkForSwitch: app profile disabled, returning null")
+            return null
+        }
+        if (!hasUsageStatsPermission(context)) {
+            Log.d(TAG, "checkForSwitch: no usage stats permission, returning null")
+            return null
+        }
 
         val currentPackage = getForegroundPackage(context)
+        Log.d(TAG, "checkForSwitch: currentPackage=$currentPackage, lastForegroundPackage=$lastForegroundPackage, lastResolvedPresetName=$lastResolvedPresetName, hasResolvedPresetOnce=$hasResolvedPresetOnce")
         lastForegroundPackage = currentPackage
 
         val mappings = getMappings()
         val fallbackPresetName = resolveDefaultPresetName()
+        Log.d(TAG, "checkForSwitch: fallbackPresetName=$fallbackPresetName, mappingsCount=${mappings.size}")
 
-        // Returning to launcher/home (or transiently no detected foreground package)
-        // should resolve to the app-profile fallback instead of keeping the old app preset.
-        val shouldUseFallback = currentPackage.isNullOrBlank() ||
-            currentPackage == context.packageName ||
-            isHomePackage(context, currentPackage)
+        // If the foreground package is null/blank, this is a transient detection failure.
+        // Do NOT switch away from the current preset.
+        if (currentPackage.isNullOrBlank()) {
+            Log.d(TAG, "checkForSwitch: foreground is null/blank → transient, keeping current preset (no switch)")
+            return null
+        }
+
+        val isBifrostSelf = currentPackage == context.packageName
+        val isHome = isHomePackage(context, currentPackage)
+        val shouldUseFallback = isBifrostSelf || isHome
+        Log.d(TAG, "checkForSwitch: isBifrostSelf=$isBifrostSelf, isHome=$isHome, shouldUseFallback=$shouldUseFallback")
 
         val presetName = if (shouldUseFallback) {
             fallbackPresetName
         } else {
-            mappings[currentPackage] ?: fallbackPresetName
+            val mappedPreset = mappings[currentPackage]
+            if (mappedPreset != null) {
+                Log.d(TAG, "checkForSwitch: package '$currentPackage' is mapped to preset '$mappedPreset'")
+            } else {
+                Log.d(TAG, "checkForSwitch: package '$currentPackage' has NO mapping → using fallback")
+            }
+            mappedPreset ?: fallbackPresetName
         }
 
-        if (hasResolvedPresetOnce && presetName == lastResolvedPresetName) return null
+        Log.d(TAG, "checkForSwitch: resolved presetName='$presetName', lastResolvedPresetName='$lastResolvedPresetName', hasResolvedPresetOnce=$hasResolvedPresetOnce")
+
+        if (hasResolvedPresetOnce && presetName == lastResolvedPresetName) {
+            Log.d(TAG, "checkForSwitch: same preset as before, returning null (no change)")
+            return null
+        }
         lastResolvedPresetName = presetName
         hasResolvedPresetOnce = true
 
         val preset = presetName?.let { loadPresetByName(it) }
+        Log.d(TAG, "checkForSwitch: SWITCHING → presetName='$presetName', preset animationType=${preset?.animationType}, presetIsNull=${preset == null}")
         return SwitchResult(presetName = presetName, preset = preset)
     }
 
     fun resetLastForegroundPackage() {
+        Log.d(TAG, "resetLastForegroundPackage: clearing all tracking state")
         lastForegroundPackage = null
         lastResolvedPresetName = null
         hasResolvedPresetOnce = false
@@ -309,5 +358,52 @@ class AppProfileManager(private val prefs: SharedPreferences) {
             )
         }
         return null
+    }
+
+    // ── Pending projection token ──────────────────────────────────────────
+
+    fun setPendingProjectionToken(packageName: String, presetName: String) {
+        Log.d(TAG, "setPendingProjectionToken: packageName=$packageName, presetName=$presetName")
+        prefs.edit()
+            .putString(PREF_KEY_PENDING_PROJECTION_PACKAGE, packageName)
+            .putString(PREF_KEY_PENDING_PROJECTION_PRESET, presetName)
+            .putBoolean(PREF_KEY_PENDING_PROJECTION_NOTIFIED, false)
+            .apply()
+    }
+
+    fun getPendingProjectionPackage(): String? =
+        prefs.getString(PREF_KEY_PENDING_PROJECTION_PACKAGE, null)?.takeIf { it.isNotBlank() }
+
+    fun getPendingProjectionPresetName(): String? =
+        prefs.getString(PREF_KEY_PENDING_PROJECTION_PRESET, null)?.takeIf { it.isNotBlank() }
+
+    fun hasPendingProjectionToken(): Boolean =
+        getPendingProjectionPackage() != null
+
+    fun isPendingProjectionNotified(): Boolean =
+        prefs.getBoolean(PREF_KEY_PENDING_PROJECTION_NOTIFIED, false)
+
+    fun markPendingProjectionNotified() {
+        prefs.edit().putBoolean(PREF_KEY_PENDING_PROJECTION_NOTIFIED, true).apply()
+    }
+
+    fun clearPendingProjectionToken() {
+        Log.d(TAG, "clearPendingProjectionToken: clearing pending projection state")
+        prefs.edit()
+            .remove(PREF_KEY_PENDING_PROJECTION_PACKAGE)
+            .remove(PREF_KEY_PENDING_PROJECTION_PRESET)
+            .remove(PREF_KEY_PENDING_PROJECTION_NOTIFIED)
+            .apply()
+    }
+
+    /**
+     * Force the next [checkForSwitch] to re-evaluate even if the preset name
+     * would normally match the dedup cache.  This is used after projection
+     * data is supplied so the MP-requiring preset is actually applied.
+     */
+    fun forceNextResolution() {
+        Log.d(TAG, "forceNextResolution: clearing lastResolvedPresetName so next check forces a result")
+        lastResolvedPresetName = null
+        hasResolvedPresetOnce = false
     }
 }
