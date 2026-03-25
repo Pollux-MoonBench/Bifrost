@@ -5,6 +5,7 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.ActivityOptions
+import android.content.res.ColorStateList
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -84,10 +85,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var autoStartupSwitch: SwitchMaterial
     private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
     private lateinit var persistentNotificationSwitch: SwitchMaterial
+    private lateinit var adaptiveBrightnessSwitch: SwitchMaterial
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var animationSpinner: Spinner
     private lateinit var profileSpinner: Spinner
     private lateinit var presetSpinner: Spinner
+    private lateinit var themeSpinner: Spinner
+    private lateinit var exportThemeButton: MaterialButton
+    private lateinit var importThemeButton: MaterialButton
     private lateinit var savePresetButton: MaterialButton
     private lateinit var modifyPresetButton: MaterialButton
     private lateinit var deletePresetButton: MaterialButton
@@ -115,12 +120,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appProfileSwitch: SwitchMaterial
     private lateinit var homeAppProfileSwitch: SwitchMaterial
     private lateinit var appProfileDefaultSwitch: SwitchMaterial
+    private lateinit var coloredLogoSwitch: SwitchMaterial
     private lateinit var assignAppButton: MaterialButton
     private lateinit var manageAppsButton: MaterialButton
     private lateinit var settingsOverlay: View
     private lateinit var homeContainer: View
     private lateinit var homeSettingsButton: MaterialButton
     private lateinit var closeSettingsButton: MaterialButton
+    private lateinit var tabUiSettings: MaterialButton
+    private lateinit var tabBehaviorSettings: MaterialButton
+    private lateinit var tabThemesSettings: MaterialButton
     private lateinit var presetCoverFlowScroll: LockableHorizontalScrollView
     private lateinit var presetCoverFlowContainer: LinearLayout
     private lateinit var activePresetInfoCard: MaterialCardView
@@ -129,9 +138,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var activePresetAnimationText: TextView
     private lateinit var activePresetProfileText: TextView
     private lateinit var modeCard: MaterialCardView
+    private lateinit var appProfileCard: MaterialCardView
     private lateinit var colorCard: MaterialCardView
     private lateinit var animationCard: MaterialCardView
     private lateinit var performanceCard: MaterialCardView
+    private lateinit var themesCard: MaterialCardView
+    private lateinit var settingsSystemStatusCard: MaterialCardView
     private lateinit var systemStatusContainer: View
     private lateinit var bifrostLogoView: ImageView
     private lateinit var bifrostTitleText: TextView
@@ -139,6 +151,41 @@ class MainActivity : AppCompatActivity() {
     private var thorAmbilightBottomSwitch: SwitchMaterial? = null
 
     private val prefs by lazy { getSharedPreferences("bifrost_prefs", MODE_PRIVATE) }
+
+    private enum class SettingsTab {
+        UI,
+        BEHAVIOR,
+        THEMES
+    }
+
+    private data class HeaderThemePalette(
+        val introHueStart: Float,
+        val introHueSpan: Float,
+        val introSaturation: Float,
+        val introValue: Float,
+        val settleHueStart: Float,
+        val settleHueSpan: Float,
+        val settleHueWobbleAmplitude: Float,
+        val settleSaturationBase: Float,
+        val settleSaturationWave: Float,
+        val settleValueBase: Float,
+        val settleValueWave: Float,
+        val settleAlphaBase: Int,
+        val settleAlphaWave: Int,
+        val settlePhaseDegrees: Float
+    )
+
+    private data class UiTheme(
+        val id: String,
+        val label: String,
+        val backgroundColor: Int,
+        val cardColor: Int,
+        val surfaceColor: Int,
+        val textColor: Int,
+        val accentColor: Int,
+        val accentLightColor: Int,
+        val headerPalette: HeaderThemePalette
+    )
 
     companion object {
         var mediaProjectionResultCode: Int? = null
@@ -165,6 +212,9 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
+        private const val PREF_ADAPTIVE_BRIGHTNESS = "adaptive_brightness_enabled"
+        private const val PREF_SELECTED_UI_THEME = "selected_ui_theme"
+        private const val PREF_COLORED_LOGO_ENABLED = "colored_logo_enabled"
         private const val EXTRA_DISPLAY_RELAUNCH_ATTEMPT = "display_relaunch_attempt"
         private const val MAX_DISPLAY_RELAUNCH_ATTEMPTS = 3
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
@@ -207,6 +257,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedFlashWhenReady: Boolean = false
     private var selectedBatteryOverrideWhenPlugged: Boolean = false
     private var selectedPersistentNotification: Boolean = true
+    private var selectedAdaptiveBrightness: Boolean = false
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
     private var isGrantingProjectionForAppProfile = false
@@ -222,12 +273,16 @@ class MainActivity : AppCompatActivity() {
     private var isCoverFlowTouching: Boolean = false
     private var lastCoverFlowScrollXForSnap: Int = 0
     private var isSettingsOverlayAnimating: Boolean = false
+    private var currentSettingsTab: SettingsTab = SettingsTab.UI
+    private var isColoredLogoEnabled: Boolean = true
     private var isSyncingAppProfileSwitches: Boolean = false
     private var isSyncingAppProfileDefaultSwitch: Boolean = false
     private var pendingPresetArtworkIndex: Int? = null
     private var presetArtworkSheetDialog: BottomSheetDialog? = null
     private var appProfileSyncRunnable: Runnable? = null
     private var resumeStateSyncRunnable: Runnable? = null
+    private var pendingBackupExportOptions: BackupArchiveTransfer.CategoryOptions? = null
+    private var pendingBackupImportOptions: BackupArchiveTransfer.CategoryOptions? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var presetController: PresetController
@@ -235,6 +290,61 @@ class MainActivity : AppCompatActivity() {
     private val colorPickerDialog = ColorPickerDialog()
     private val ragnarokWarningDialog = RagnarokWarningDialog()
     private lateinit var appProfileManager: AppProfileManager
+    private val builtInThemes = listOf(
+        UiTheme(
+            id = "classic",
+            label = "Classic",
+            backgroundColor = Color.parseColor("#0A0E1A"),
+            cardColor = Color.parseColor("#12182B"),
+            surfaceColor = Color.parseColor("#1A2236"),
+            textColor = Color.parseColor("#E8EEFF"),
+            accentColor = Color.parseColor("#6366F1"),
+            accentLightColor = Color.parseColor("#818CF8"),
+            headerPalette = HeaderThemePalette(
+                introHueStart = 0f,
+                introHueSpan = 360f,
+                introSaturation = 0.82f,
+                introValue = 1f,
+                settleHueStart = 18f,
+                settleHueSpan = 300f,
+                settleHueWobbleAmplitude = 10f,
+                settleSaturationBase = 0.28f,
+                settleSaturationWave = 0.14f,
+                settleValueBase = 0.92f,
+                settleValueWave = 0.08f,
+                settleAlphaBase = 224,
+                settleAlphaWave = 31,
+                settlePhaseDegrees = 18f
+            )
+        ),
+        UiTheme(
+            id = "oled_purple",
+            label = "OLED Purple",
+            backgroundColor = Color.parseColor("#000000"),
+            cardColor = Color.parseColor("#000000"),
+            surfaceColor = Color.parseColor("#000000"),
+            textColor = Color.parseColor("#C084FC"),
+            accentColor = Color.parseColor("#A855F7"),
+            accentLightColor = Color.parseColor("#C084FC"),
+            headerPalette = HeaderThemePalette(
+                introHueStart = 264f,
+                introHueSpan = 64f,
+                introSaturation = 0.9f,
+                introValue = 0.98f,
+                settleHueStart = 272f,
+                settleHueSpan = 48f,
+                settleHueWobbleAmplitude = 5f,
+                settleSaturationBase = 0.5f,
+                settleSaturationWave = 0.16f,
+                settleValueBase = 0.76f,
+                settleValueWave = 0.2f,
+                settleAlphaBase = 236,
+                settleAlphaWave = 19,
+                settlePhaseDegrees = 12f
+            )
+        )
+    )
+    private var selectedUiTheme: UiTheme = builtInThemes.first()
 
     private val launchNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -345,13 +455,29 @@ class MainActivity : AppCompatActivity() {
     private val exportPresetsLauncher =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
-            exportPresetBundle(uri)
+            val options = pendingBackupExportOptions ?: BackupArchiveTransfer.CategoryOptions()
+            pendingBackupExportOptions = null
+            exportPresetBundle(uri, options)
+        }
+
+    private val exportThemeLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            exportThemeBundle(uri)
         }
 
     private val importPresetsLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
-            importPresetBundle(uri)
+            val options = pendingBackupImportOptions ?: BackupArchiveTransfer.CategoryOptions()
+            pendingBackupImportOptions = null
+            importPresetBundle(uri, options)
+        }
+
+    private val importThemeLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            importThemeBundle(uri)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -406,6 +532,9 @@ class MainActivity : AppCompatActivity() {
         homeContainer = findViewById(R.id.homeContainer)
         homeSettingsButton = findViewById(R.id.homeSettingsButton)
         closeSettingsButton = findViewById(R.id.closeSettingsButton)
+        tabUiSettings = findViewById(R.id.tabUiSettings)
+        tabBehaviorSettings = findViewById(R.id.tabBehaviorSettings)
+        tabThemesSettings = findViewById(R.id.tabThemesSettings)
         presetCoverFlowScroll = findViewById(R.id.presetCoverFlowScroll)
         presetCoverFlowContainer = findViewById(R.id.presetCoverFlowContainer)
         activePresetInfoCard = findViewById(R.id.activePresetInfoCard)
@@ -418,9 +547,13 @@ class MainActivity : AppCompatActivity() {
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
         pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
         persistentNotificationSwitch = findViewById(R.id.persistentNotificationSwitch)
+        adaptiveBrightnessSwitch = findViewById(R.id.adaptiveBrightnessSwitch)
         animationSpinner = findViewById(R.id.animationSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
         presetSpinner = findViewById(R.id.presetSpinner)
+        themeSpinner = findViewById(R.id.themeSpinner)
+        exportThemeButton = findViewById(R.id.exportThemeButton)
+        importThemeButton = findViewById(R.id.importThemeButton)
         savePresetButton = findViewById(R.id.savePresetButton)
         modifyPresetButton = findViewById(R.id.modifyPresetButton)
         deletePresetButton = findViewById(R.id.deletePresetButton)
@@ -446,6 +579,7 @@ class MainActivity : AppCompatActivity() {
         chargingSpeedIndicatorSwitch = findViewById(R.id.chargingSpeedIndicatorSwitch)
         flashWhenReadySwitch = findViewById(R.id.flashWhenReadySwitch)
         appProfileSwitch = findViewById(R.id.appProfileSwitch)
+        coloredLogoSwitch = findViewById(R.id.coloredLogoSwitch)
         homeAppProfileSwitch = findViewById(R.id.homeAppProfileSwitch)
         val appProfileDefaultSwitchId = resources.getIdentifier(
             "appProfileDefaultSwitch",
@@ -457,12 +591,16 @@ class MainActivity : AppCompatActivity() {
         assignAppButton = findViewById(R.id.assignAppButton)
         manageAppsButton = findViewById(R.id.manageAppsButton)
         modeCard = findViewById(R.id.modeCard)
+        appProfileCard = findViewById(R.id.appProfileCard)
         colorCard = findViewById(R.id.colorCard)
         animationCard = findViewById(R.id.animationCard)
         performanceCard = findViewById(R.id.performanceCard)
+        themesCard = findViewById(R.id.themesCard)
+        settingsSystemStatusCard = findViewById(R.id.settingsSystemStatusCard)
         systemStatusContainer = findViewById(R.id.systemStatusContainer)
         bifrostLogoView = findViewById(R.id.homeBifrostLogoView)
         bifrostTitleText = findViewById(R.id.homeBifrostTitleText)
+        bifrostTitleLabel = bifrostTitleText.text.toString()
 
         serviceController = ServiceController(
             activity = this,
@@ -495,7 +633,12 @@ class MainActivity : AppCompatActivity() {
         setupAutoStartupSwitch()
         setupPluggedBatteryOverrideSwitch()
         setupPersistentNotificationSwitch()
+        setupAdaptiveBrightnessSwitch()
         setupThorScreenPreference()
+        setupSettingsTabs()
+        setupThemeFeature()
+        setupColoredLogoSwitch()
+        setupRainbowTitleText()
         setupPresetFeature()
         updateParameterVisibility()
         enableRainbowBackground(LEDService.isRunning)
@@ -575,6 +718,174 @@ class MainActivity : AppCompatActivity() {
                     scheduleCoverFlowSnap()
                 }
             }
+        }
+    }
+
+    private fun setupSettingsTabs() {
+        tabUiSettings.setOnClickListener { setSettingsTab(SettingsTab.UI) }
+        tabBehaviorSettings.setOnClickListener { setSettingsTab(SettingsTab.BEHAVIOR) }
+        tabThemesSettings.setOnClickListener { setSettingsTab(SettingsTab.THEMES) }
+        setSettingsTab(currentSettingsTab)
+    }
+
+    private fun setSettingsTab(tab: SettingsTab) {
+        currentSettingsTab = tab
+        val showingUi = tab == SettingsTab.UI
+        val showingBehavior = tab == SettingsTab.BEHAVIOR
+        val showingThemes = tab == SettingsTab.THEMES
+
+        modeCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+        colorCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+        animationCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+        performanceCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+
+        settingsSystemStatusCard.visibility = if (showingBehavior) View.VISIBLE else View.GONE
+        appProfileCard.visibility = if (showingBehavior) View.VISIBLE else View.GONE
+
+        val thorCard = findViewById<View>(R.id.thorSettingsCard)
+        thorCard?.visibility = if (showingBehavior && DeviceInfo.isAynThor) View.VISIBLE else View.GONE
+
+        themesCard.visibility = if (showingThemes) View.VISIBLE else View.GONE
+
+        updateSettingsTabButtonStyles()
+    }
+
+    private fun updateSettingsTabButtonStyles() {
+        updateSettingsTabButtonState(tabUiSettings, currentSettingsTab == SettingsTab.UI)
+        updateSettingsTabButtonState(tabBehaviorSettings, currentSettingsTab == SettingsTab.BEHAVIOR)
+        updateSettingsTabButtonState(tabThemesSettings, currentSettingsTab == SettingsTab.THEMES)
+    }
+
+    private fun updateSettingsTabButtonState(button: MaterialButton, selected: Boolean) {
+        val selectedTint = ColorStateList.valueOf(selectedUiTheme.accentColor)
+        val unselectedTint = ColorStateList.valueOf(selectedUiTheme.surfaceColor)
+        button.backgroundTintList = if (selected) selectedTint else unselectedTint
+        button.setTextColor(if (selected) Color.WHITE else selectedUiTheme.textColor)
+        button.strokeColor = ColorStateList.valueOf(selectedUiTheme.accentLightColor)
+    }
+
+    private fun setupThemeFeature() {
+        val adapter = ArrayAdapter(this, R.layout.item_spinner_bifrost, builtInThemes.map { it.label })
+        adapter.setDropDownViewResource(R.layout.item_spinner_dropdown_bifrost)
+        themeSpinner.adapter = adapter
+
+        val selectedThemeId = prefs.getString(PREF_SELECTED_UI_THEME, builtInThemes.first().id)
+        val selectedIndex = builtInThemes.indexOfFirst { it.id == selectedThemeId }.takeIf { it >= 0 } ?: 0
+        selectedUiTheme = builtInThemes[selectedIndex]
+        themeSpinner.setSelection(selectedIndex, false)
+        applySelectedTheme(selectedUiTheme, persistSelection = false)
+
+        themeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val theme = builtInThemes.getOrNull(position) ?: return
+                applySelectedTheme(theme, persistSelection = true)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun applySelectedTheme(theme: UiTheme, persistSelection: Boolean) {
+        selectedUiTheme = theme
+        if (persistSelection) {
+            prefs.edit().putString(PREF_SELECTED_UI_THEME, theme.id).apply()
+        }
+        applyUiTheme(theme)
+    }
+
+    private fun applyUiTheme(theme: UiTheme) {
+        setupStatusBar()
+        findViewById<View>(android.R.id.content)?.setBackgroundColor(theme.backgroundColor)
+        homeContainer.setBackgroundColor(theme.backgroundColor)
+        settingsOverlay.setBackgroundColor(theme.backgroundColor)
+        applyThemeToViewTree(homeContainer, theme)
+        applyThemeToViewTree(settingsOverlay, theme)
+        applyHeaderLogoPreference()
+        updateSettingsTabButtonStyles()
+    }
+
+    private fun applyThemeToViewTree(view: View, theme: UiTheme) {
+        when (view) {
+            is MaterialCardView -> {
+                view.setCardBackgroundColor(theme.cardColor)
+                view.strokeColor = theme.accentColor
+            }
+
+            is MaterialButton -> {
+                view.backgroundTintList = ColorStateList.valueOf(theme.surfaceColor)
+                view.setTextColor(theme.textColor)
+                view.iconTint = ColorStateList.valueOf(theme.textColor)
+                view.strokeColor = ColorStateList.valueOf(theme.accentColor)
+            }
+        }
+
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                applyThemeToViewTree(view.getChildAt(index), theme)
+            }
+        }
+    }
+
+    private fun setupColoredLogoSwitch() {
+        isColoredLogoEnabled = prefs.getBoolean(PREF_COLORED_LOGO_ENABLED, true)
+        coloredLogoSwitch.isChecked = isColoredLogoEnabled
+        applyHeaderLogoPreference()
+
+        coloredLogoSwitch.setOnCheckedChangeListener { _, isChecked ->
+            isColoredLogoEnabled = isChecked
+            prefs.edit().putBoolean(PREF_COLORED_LOGO_ENABLED, isChecked).apply()
+            applyHeaderLogoPreference()
+            if (isChecked) {
+                playBifrostHeaderAnimation()
+            }
+        }
+    }
+
+    private fun setupRainbowTitleText() {
+        if (bifrostTitleLabel.isBlank()) return
+
+        bifrostLogoView.setOnClickListener {
+            if (isColoredLogoEnabled) {
+                playBifrostHeaderAnimation()
+            }
+        }
+        bifrostTitleText.setOnClickListener {
+            if (isColoredLogoEnabled) {
+                playBifrostHeaderAnimation()
+            }
+        }
+
+        if (isColoredLogoEnabled) {
+            playBifrostHeaderAnimation()
+        } else {
+            applyHeaderLogoPreference()
+        }
+    }
+
+    private fun applyHeaderLogoPreference() {
+        if (bifrostTitleLabel.isBlank()) return
+
+        titleIntroAnimator?.cancel()
+        headerSettleAnimator?.cancel()
+        titleIntroAnimator = null
+        headerSettleAnimator = null
+
+        bifrostLogoView.rotation = 0f
+        bifrostLogoView.scaleX = 1f
+        bifrostLogoView.scaleY = 1f
+        bifrostLogoView.translationY = 0f
+        bifrostLogoView.alpha = 1f
+
+        if (isColoredLogoEnabled) {
+            applyWatercolorTitlePhase(
+                bifrostTitleLabel,
+                selectedUiTheme.headerPalette.settlePhaseDegrees
+            )
+            bifrostLogoView.clearColorFilter()
+        } else {
+            bifrostTitleText.text = bifrostTitleLabel
+            bifrostTitleText.setTextColor(selectedUiTheme.textColor)
+            bifrostLogoView.clearColorFilter()
         }
     }
 
@@ -1643,7 +1954,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupStatusBar() {
-        window.statusBarColor = getColor(R.color.bifrost_bg)
+        window.statusBarColor = selectedUiTheme.backgroundColor
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = false
@@ -1713,15 +2024,58 @@ class MainActivity : AppCompatActivity() {
         rainbowDrawable = null
     }
 
+    private fun normalizedCyclePhase(phaseDegrees: Float): Float {
+        return ((phaseDegrees % 360f) + 360f) % 360f / 360f
+    }
+
+    private fun computeIntroThemeColor(index: Int, maxIndex: Int, phaseDegrees: Float): Int {
+        val palette = selectedUiTheme.headerPalette
+        val phase = normalizedCyclePhase(phaseDegrees)
+        val letterProgress = index / maxIndex.toFloat()
+        val hueWindow = palette.introHueSpan * ((phase + letterProgress) % 1f)
+        val hue = (palette.introHueStart + hueWindow) % 360f
+        return Color.HSVToColor(floatArrayOf(hue, palette.introSaturation, palette.introValue))
+    }
+
+    private fun computeSettleThemeColor(index: Int, maxIndex: Int, phaseDegrees: Float): Int {
+        val palette = selectedUiTheme.headerPalette
+        val phase = normalizedCyclePhase(phaseDegrees)
+        val letterProgress = index / maxIndex.toFloat()
+        val hueProgress = (letterProgress + phase) % 1f
+        val hue = (
+            palette.settleHueStart +
+                palette.settleHueSpan * hueProgress +
+                palette.settleHueWobbleAmplitude * sin(letterProgress * PI).toFloat()
+            ) % 360f
+        val saturation = (
+            palette.settleSaturationBase +
+                palette.settleSaturationWave * ((sin(letterProgress * PI * 3.0) + 1.0) / 2.0).toFloat()
+            ).coerceIn(0f, 1f)
+        val value = (
+            palette.settleValueBase +
+                palette.settleValueWave * ((cos(letterProgress * PI * 2.0) + 1.0) / 2.0).toFloat()
+            ).coerceIn(0f, 1f)
+        val alpha = (
+            palette.settleAlphaBase +
+                palette.settleAlphaWave * ((sin(letterProgress * PI * 2.5) + 1.0) / 2.0)
+            ).roundToInt().coerceIn(0, 255)
+        return Color.HSVToColor(alpha, floatArrayOf(hue, saturation, value))
+    }
+
     private fun applyRainbowTitlePhase(text: String, phaseDegrees: Float) {
+        if (!isColoredLogoEnabled) {
+            bifrostTitleText.text = text
+            bifrostTitleText.setTextColor(selectedUiTheme.textColor)
+            return
+        }
+
         val rainbowText = SpannableString(text)
         val maxIndex = (text.length - 1).coerceAtLeast(1)
 
         text.indices.forEach { index ->
             if (text[index].isWhitespace()) return@forEach
 
-            val hue = (phaseDegrees + (360f * index / maxIndex)) % 360f
-            val color = Color.HSVToColor(floatArrayOf(hue, 0.82f, 1f))
+            val color = computeIntroThemeColor(index, maxIndex, phaseDegrees)
             rainbowText.setSpan(
                 ForegroundColorSpan(color),
                 index,
@@ -1733,8 +2087,31 @@ class MainActivity : AppCompatActivity() {
         bifrostTitleText.text = rainbowText
     }
 
+    private fun applyWatercolorTitlePhase(text: String, phaseDegrees: Float) {
+        val watercolorText = SpannableString(text)
+        val maxIndex = (text.length - 1).coerceAtLeast(1)
+
+        text.indices.forEach { index ->
+            if (text[index].isWhitespace()) return@forEach
+
+            val color = computeSettleThemeColor(index, maxIndex, phaseDegrees)
+            watercolorText.setSpan(
+                ForegroundColorSpan(color),
+                index,
+                index + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        bifrostTitleText.text = watercolorText
+    }
+
     private fun playBifrostHeaderAnimation() {
         if (bifrostTitleLabel.isBlank()) return
+        if (!isColoredLogoEnabled) {
+            applyHeaderLogoPreference()
+            return
+        }
 
         titleIntroAnimator?.cancel()
         headerSettleAnimator?.cancel()
@@ -1782,8 +2159,16 @@ class MainActivity : AppCompatActivity() {
     private fun resetBifrostHeaderAnimationState() {
         if (bifrostTitleLabel.isBlank()) return
 
-        bifrostTitleText.text = bifrostTitleLabel
-        bifrostTitleText.setTextColor(ContextCompat.getColor(this, R.color.bifrost_text))
+        if (isColoredLogoEnabled) {
+            applyWatercolorTitlePhase(
+                bifrostTitleLabel,
+                selectedUiTheme.headerPalette.settlePhaseDegrees
+            )
+        } else {
+            bifrostTitleText.text = bifrostTitleLabel
+            bifrostTitleText.setTextColor(selectedUiTheme.textColor)
+        }
+
         bifrostLogoView.rotation = 0f
         bifrostLogoView.scaleX = 1f
         bifrostLogoView.scaleY = 1f
@@ -1807,7 +2192,7 @@ class MainActivity : AppCompatActivity() {
             .setDuration(400L)
             .setInterpolator(DecelerateInterpolator())
             .withEndAction {
-                resetBifrostHeaderAnimationState()
+                applyHeaderLogoPreference()
             }
             .start()
     }
@@ -2050,10 +2435,6 @@ class MainActivity : AppCompatActivity() {
             object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     selectedSpeed = progress / 100f
-                    selectedSmoothness = selectedSpeed
-                    if (fromUser) {
-                        smoothnessSeekBar.progress = progress
-                    }
                     if (LEDService.isRunning && fromUser && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
                         sendLiveUpdateToLedService()
                     }
@@ -2071,10 +2452,6 @@ class MainActivity : AppCompatActivity() {
             object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     selectedSmoothness = progress / 100f
-                    selectedSpeed = selectedSmoothness
-                    if (fromUser) {
-                        speedSeekBar.progress = progress
-                    }
                     if (LEDService.isRunning && fromUser && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
                         sendLiveUpdateToLedService()
                     }
@@ -2213,6 +2590,20 @@ class MainActivity : AppCompatActivity() {
         persistentNotificationSwitch.setOnCheckedChangeListener { _, isChecked ->
             selectedPersistentNotification = isChecked
             prefs.edit().putBoolean(PREF_PERSISTENT_NOTIFICATION, isChecked).apply()
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupAdaptiveBrightnessSwitch() {
+        selectedAdaptiveBrightness = prefs.getBoolean(PREF_ADAPTIVE_BRIGHTNESS, false)
+        adaptiveBrightnessSwitch.isChecked = selectedAdaptiveBrightness
+
+        adaptiveBrightnessSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedAdaptiveBrightness = isChecked
+            prefs.edit().putBoolean(PREF_ADAPTIVE_BRIGHTNESS, isChecked).apply()
 
             if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
                 sendLiveUpdateToLedService()
@@ -2584,12 +2975,35 @@ class MainActivity : AppCompatActivity() {
         syncAppProfileDefaultSwitch()
 
         exportPresetsButton.setOnClickListener {
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            exportPresetsLauncher.launch("bifrost_presets_$timestamp.bifrost_preset")
+            showBackupCategoryDialog(
+                title = "BACKUP CATEGORIES",
+                subtitle = "Choose what to include in the backup",
+                confirmLabel = "BACKUP"
+            ) { options ->
+                pendingBackupExportOptions = options
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                exportPresetsLauncher.launch("bifrost_backup_$timestamp.bifrost_backup")
+            }
         }
 
         importPresetsButton.setOnClickListener {
-            importPresetsLauncher.launch(arrayOf("*/*"))
+            showBackupCategoryDialog(
+                title = "RESTORE CATEGORIES",
+                subtitle = "Choose what to restore from archive",
+                confirmLabel = "RESTORE"
+            ) { options ->
+                pendingBackupImportOptions = options
+                importPresetsLauncher.launch(arrayOf("*/*"))
+            }
+        }
+
+        exportThemeButton.setOnClickListener {
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            exportThemeLauncher.launch("bifrost_theme_$timestamp.bifrost_theme")
+        }
+
+        importThemeButton.setOnClickListener {
+            importThemeLauncher.launch(arrayOf("*/*"))
         }
 
         // If the app switching feature is already enabled, start syncing the UI after presets load.
@@ -2598,23 +3012,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun exportPresetBundle(uri: Uri) {
+    private fun exportPresetBundle(uri: Uri, options: BackupArchiveTransfer.CategoryOptions) {
         val result = runCatching {
-            PresetArchiveTransfer.exportToUri(
-                context = this,
-                uri = uri,
-                presets = presetController.getPresets(),
-                mappings = appProfileManager.getMappings()
-            )
+            BackupArchiveTransfer.exportToUri(context = this, uri = uri, options = options)
         }.getOrElse {
-            Toast.makeText(this, "Preset export failed", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Backup export failed", Toast.LENGTH_LONG).show()
             return
         }
 
         if (result.warnings.isEmpty()) {
             Toast.makeText(
                 this,
-                "Exported ${result.presetCount} presets (${result.iconCount} icons)",
+                "Backup saved (${result.preferenceCount} settings, ${result.iconCount} images)",
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -2623,8 +3032,8 @@ class MainActivity : AppCompatActivity() {
         val warningText = result.warnings.joinToString("\n")
         BifrostAlertDialog().show(
             activity = this,
-            title = "EXPORT COMPLETED",
-            subtitle = "Exported ${result.presetCount} presets with ${result.warnings.size} warning(s)",
+            title = "BACKUP COMPLETED",
+            subtitle = "Saved backup with ${result.warnings.size} warning(s)",
             body = warningText,
             positiveLabelResId = R.string.alert_action_ok,
             negativeLabelResId = null,
@@ -2633,15 +3042,64 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun importPresetBundle(uri: Uri) {
-        val result = runCatching {
-            PresetArchiveTransfer.importFromUri(this, uri)
+    private fun importPresetBundle(uri: Uri, options: BackupArchiveTransfer.CategoryOptions) {
+        val backupResult = runCatching {
+            BackupArchiveTransfer.importFromUri(this, uri, options = options)
         }.getOrElse {
             BifrostAlertDialog().show(
                 activity = this,
                 title = "IMPORT FAILED",
                 subtitle = "Selected file could not be imported",
                 body = it.message,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        if (backupResult.errors.isEmpty()) {
+            val categorySummary = describeBackupCategories(backupResult.appliedOptions)
+            val warningText = if (backupResult.warnings.isEmpty()) {
+                "Categories: $categorySummary\n\nRestore completed successfully."
+            } else {
+                "Categories: $categorySummary\n\nWarnings:\n${backupResult.warnings.joinToString("\n")}"
+            }
+
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "RESTORE COMPLETED",
+                subtitle = "Restored ${backupResult.preferenceCount} settings and ${backupResult.iconCount} images",
+                body = warningText,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {
+                    recreate()
+                }
+            )
+            return
+        }
+
+        // Fallback: allow importing legacy preset bundles through the same picker.
+        val result = runCatching {
+            PresetArchiveTransfer.importFromUri(this, uri)
+        }.getOrElse {
+            val mergedErrorText = buildString {
+                append(backupResult.errors.joinToString("\n"))
+                if (isNotEmpty()) append("\n\n")
+                append("Legacy preset import failed")
+                it.message?.let { message ->
+                    append(": ")
+                    append(message)
+                }
+            }
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "IMPORT FAILED",
+                subtitle = "Selected file is not a valid backup archive",
+                body = mergedErrorText,
                 positiveLabelResId = R.string.alert_action_ok,
                 negativeLabelResId = null,
                 cancelable = true,
@@ -2670,6 +3128,45 @@ class MainActivity : AppCompatActivity() {
                 applyImportedBundle(result, replaceEverything = false)
             }
         )
+    }
+
+    private fun showBackupCategoryDialog(
+        title: String,
+        subtitle: String,
+        confirmLabel: String,
+        onConfirm: (BackupArchiveTransfer.CategoryOptions) -> Unit
+    ) {
+        val labels = arrayOf("Themes", "Profiles", "Images")
+        val checked = booleanArrayOf(true, true, true)
+
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(subtitle)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton(confirmLabel) { _, _ ->
+                val options = BackupArchiveTransfer.CategoryOptions(
+                    themes = checked[0],
+                    profiles = checked[1],
+                    images = checked[2]
+                )
+                if (!options.hasAtLeastOneCategory()) {
+                    Toast.makeText(this, "Select at least one category", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                onConfirm(options)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun describeBackupCategories(options: BackupArchiveTransfer.CategoryOptions): String {
+        val selected = mutableListOf<String>()
+        if (options.themes) selected += "Themes"
+        if (options.profiles) selected += "Profiles"
+        if (options.images) selected += "Images"
+        return if (selected.isEmpty()) "None" else selected.joinToString(" + ")
     }
 
     private fun applyImportedBundle(
@@ -2705,6 +3202,118 @@ class MainActivity : AppCompatActivity() {
         }
 
         showImportReport(result)
+    }
+
+    private fun exportThemeBundle(uri: Uri) {
+        val result = runCatching {
+            ThemeArchiveTransfer.exportToUri(
+                context = this,
+                uri = uri,
+                themeId = selectedUiTheme.id,
+                coloredLogoEnabled = isColoredLogoEnabled
+            )
+        }.getOrElse {
+            Toast.makeText(this, "Theme export failed", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (result.warnings.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Theme saved (${selectedUiTheme.label})",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = "THEME EXPORT COMPLETED",
+            subtitle = "Saved ${selectedUiTheme.label} with ${result.warnings.size} warning(s)",
+            body = result.warnings.joinToString("\n"),
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {}
+        )
+    }
+
+    private fun importThemeBundle(uri: Uri) {
+        val result = runCatching {
+            ThemeArchiveTransfer.importFromUri(this, uri)
+        }.getOrElse {
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "THEME IMPORT FAILED",
+                subtitle = "Selected file could not be imported",
+                body = it.message,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        val importedTheme = builtInThemes.firstOrNull { it.id == result.themeId }
+        val errors = result.errors.toMutableList()
+        if (importedTheme == null) {
+            errors += if (result.themeId.isNullOrBlank()) {
+                "Theme bundle does not contain a supported theme."
+            } else {
+                "Theme '${result.themeId}' is not available in this build."
+            }
+        }
+
+        if (errors.isNotEmpty()) {
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "THEME IMPORT FAILED",
+                subtitle = "Selected file is not a valid supported theme bundle",
+                body = (errors + result.warnings).joinToString("\n"),
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        applyImportedTheme(importedTheme!!, result.coloredLogoEnabled)
+
+        val body = if (result.warnings.isEmpty()) {
+            "Theme applied successfully."
+        } else {
+            "Warnings:\n${result.warnings.joinToString("\n")}"
+        }
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = "THEME IMPORT COMPLETED",
+            subtitle = "Applied ${importedTheme.label}",
+            body = body,
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {}
+        )
+    }
+
+    private fun applyImportedTheme(theme: UiTheme, coloredLogoEnabled: Boolean) {
+        prefs.edit()
+            .putString(PREF_SELECTED_UI_THEME, theme.id)
+            .putBoolean(PREF_COLORED_LOGO_ENABLED, coloredLogoEnabled)
+            .apply()
+
+        isColoredLogoEnabled = coloredLogoEnabled
+        val themeIndex = builtInThemes.indexOfFirst { it.id == theme.id }.takeIf { it >= 0 } ?: 0
+        themeSpinner.setSelection(themeIndex, false)
+        applySelectedTheme(theme, persistSelection = false)
+        if (coloredLogoSwitch.isChecked != coloredLogoEnabled) {
+            coloredLogoSwitch.isChecked = coloredLogoEnabled
+        } else {
+            applyHeaderLogoPreference()
+        }
     }
 
     private fun showImportReport(result: PresetArchiveTransfer.ImportResult) {
@@ -2795,11 +3404,11 @@ class MainActivity : AppCompatActivity() {
             val ignoreletterbox = findViewById<View>(R.id.ignoreletterbox)
             var bothSticksSameColor = findViewById<View>(R.id.bothSticksSameColor)
 
-            speedLabel?.visibility = if (needsSpeed || needsSmoothness) View.VISIBLE else View.GONE
-            speedSeekBar.visibility = if (needsSpeed || needsSmoothness) View.VISIBLE else View.GONE
+            speedLabel?.visibility = if (needsSpeed) View.VISIBLE else View.GONE
+            speedSeekBar.visibility = if (needsSpeed) View.VISIBLE else View.GONE
 
-            smoothnessLabel?.visibility = View.GONE
-            smoothnessSeekBar.visibility = View.GONE
+            smoothnessLabel?.visibility = if (needsSmoothness) View.VISIBLE else View.GONE
+            smoothnessSeekBar.visibility = if (needsSmoothness) View.VISIBLE else View.GONE
 
             sensitivityLabel?.visibility = if (needsSensitivity) View.VISIBLE else View.GONE
             sensitivitySeekBar.visibility = if (needsSensitivity) View.VISIBLE else View.GONE
@@ -2970,6 +3579,10 @@ class MainActivity : AppCompatActivity() {
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,
                 selectedPersistentNotification
             )
+            putExtra(
+                LEDService.EXTRA_ADAPTIVE_BRIGHTNESS,
+                selectedAdaptiveBrightness
+            )
             putExtra("ambilightDisplayId", getAmbilightTargetDisplayId())
             putExtra(
                 LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
@@ -3020,6 +3633,10 @@ class MainActivity : AppCompatActivity() {
             putExtra(
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,
                 selectedPersistentNotification
+            )
+            putExtra(
+                LEDService.EXTRA_ADAPTIVE_BRIGHTNESS,
+                selectedAdaptiveBrightness
             )
         }
         startService(intent)

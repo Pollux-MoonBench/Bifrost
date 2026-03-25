@@ -17,6 +17,7 @@ class ServiceController(
     private var isOperationInProgress = false
     private var lastOperationTime = 0L
     private var pendingServiceOperation: Runnable? = null
+    private var pendingTransitionClear: Runnable? = null
     private var operationToken = 0
 
     var onNeedsMediaProjectionCheck: (() -> Unit)? = null
@@ -24,6 +25,8 @@ class ServiceController(
     fun cancelPendingOperations() {
         pendingServiceOperation?.let { handler.removeCallbacks(it) }
         pendingServiceOperation = null
+        pendingTransitionClear?.let { handler.removeCallbacks(it) }
+        pendingTransitionClear = null
         isOperationInProgress = false
         isServiceTransitioning = false
         operationToken++
@@ -42,13 +45,19 @@ class ServiceController(
 
     private fun finishOperationWindowWithGraceDelay() {
         isOperationInProgress = false
-        handler.postDelayed({
-            isServiceTransitioning = false
-        }, 200)
+        val token = operationToken
+        pendingTransitionClear?.let { handler.removeCallbacks(it) }
+        pendingTransitionClear = Runnable {
+            if (token == operationToken) {
+                isServiceTransitioning = false
+            }
+            pendingTransitionClear = null
+        }
+        handler.postDelayed(pendingTransitionClear!!, 200)
     }
 
     fun startDebounced(createIntent: () -> Intent) {
-        if (isOperationInProgress) return
+        if (isOperationInProgress) cancelPendingOperations()
         beginOperationWindow()
         val token = operationToken
 
@@ -65,7 +74,7 @@ class ServiceController(
     }
 
     fun stopDebounced() {
-        if (isOperationInProgress) return
+        if (isOperationInProgress) cancelPendingOperations()
         beginOperationWindow()
         val token = operationToken
 
@@ -82,7 +91,7 @@ class ServiceController(
     }
 
     fun restartDebounced(needsMediaProjectionCheck: Boolean = false, createIntent: () -> Intent) {
-        if (isOperationInProgress) return
+        if (isOperationInProgress) cancelPendingOperations()
 
         if (needsMediaProjectionCheck) {
             onNeedsMediaProjectionCheck?.invoke()

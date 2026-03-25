@@ -105,6 +105,26 @@ object PresetImageStorage {
     private const val MAX_IMAGE_BYTES = 8L * 1024L * 1024L
     private val SAFE_FILE_NAME_REGEX = Regex("^[A-Za-z0-9._-]{1,96}$")
 
+    fun listStoredIconFileNames(context: Context): List<String> {
+        val dir = resolveDirectory(context)
+        return dir.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile }
+            ?.map { it.name }
+            ?.sorted()
+            ?.toList()
+            ?: emptyList()
+    }
+
+    fun clearAllIcons(context: Context) {
+        val dir = resolveDirectory(context)
+        dir.listFiles()?.forEach { file ->
+            if (file.isFile) {
+                file.delete()
+            }
+        }
+    }
+
     fun copyPickedImage(context: Context, sourceUri: Uri): String? {
         val mimeType = context.contentResolver.getType(sourceUri)?.lowercase() ?: return null
         if (!mimeType.startsWith("image/")) return null
@@ -174,6 +194,16 @@ object PresetImageStorage {
             FileOutputStream(targetFile).use { it.write(bytes) }
             targetFile.name
         }.getOrNull()
+    }
+
+    fun writeIconWithExactName(context: Context, fileName: String, bytes: ByteArray): Boolean {
+        if (bytes.isEmpty() || bytes.size > MAX_IMAGE_BYTES) return false
+
+        return runCatching {
+            val targetFile = resolveFile(context, fileName)
+            FileOutputStream(targetFile).use { it.write(bytes) }
+            true
+        }.getOrDefault(false)
     }
 
     fun loadBitmap(context: Context, fileName: String, targetSizePx: Int): Bitmap? {

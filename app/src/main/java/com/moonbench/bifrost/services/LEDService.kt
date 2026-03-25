@@ -13,6 +13,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.database.ContentObserver
+import android.provider.Settings
 import android.content.pm.ServiceInfo
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -74,6 +76,10 @@ class LEDService : Service() {
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
         const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
+        const val EXTRA_ADAPTIVE_BRIGHTNESS = "adaptiveBrightness"
+
+        /** Minimum LED scale applied when screen brightness is at its lowest (0–255 → 0.25). */
+        private const val ADAPTIVE_BRIGHTNESS_MIN_SCALE = 0.25f
         private const val EXTRA_BATTERY_LOW_COLOR_OVERRIDE = "batteryLowColorOverride"
         private const val EXTRA_BATTERY_MID_COLOR_OVERRIDE = "batteryMidColorOverride"
         private const val EXTRA_BATTERY_HIGH_COLOR_OVERRIDE = "batteryHighColorOverride"
@@ -117,6 +123,7 @@ class LEDService : Service() {
     private var currentCpuHotColorOverride: Int? = null
     private var currentBatteryOverrideWhenPlugged: Boolean = false
     private var currentPersistentNotification: Boolean = true
+    private var currentAdaptiveBrightness: Boolean = false
     private var allowBackgroundRun: Boolean = false
     private var currentAmbilightDisplayId: Int = Display.DEFAULT_DISPLAY
     private var activeAnimationType: LedAnimationType? = null
@@ -127,7 +134,48 @@ class LEDService : Service() {
     private var pendingTransitionRunnable: Runnable? = null
     private var pendingProjectionRunnable: Runnable? = null
     private var pendingShutdownRunnable: Runnable? = null
+    private var pendingFinalizeStopRunnable: Runnable? = null
     private var isAppProfileSuppressed: Boolean = false
+
+    /**
+     * Maps the current system screen brightness (0–255) to an LED brightness multiplier.
+     * Brightness 0 → ADAPTIVE_BRIGHTNESS_MIN_SCALE, brightness 255 → 1.0.
+     */
+    private val screenBrightnessObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            if (!currentAdaptiveBrightness) return
+            applyAdaptiveBrightnessToAnimation()
+        }
+    }
+
+    private fun screenBrightnessScale(): Float {
+        val raw = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrDefault(255)
+        val normalised = raw.coerceIn(0, 255) / 255f
+        return ADAPTIVE_BRIGHTNESS_MIN_SCALE + normalised * (1f - ADAPTIVE_BRIGHTNESS_MIN_SCALE)
+    }
+
+    private fun effectiveBrightness(): Int {
+        if (!currentAdaptiveBrightness) return currentBrightness
+        return (currentBrightness * screenBrightnessScale()).toInt().coerceIn(0, 255)
+    }
+
+    private fun applyAdaptiveBrightnessToAnimation() {
+        currentAnimation?.setTargetBrightness(effectiveBrightness())
+    }
+
+    private fun mountScreenBrightnessObserver() {
+        contentResolver.registerContentObserver(
+            Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS),
+            false,
+            screenBrightnessObserver
+        )
+    }
+
+    private fun unmountScreenBrightnessObserver() {
+        runCatching { contentResolver.unregisterContentObserver(screenBrightnessObserver) }
+    }
 
     private val batteryStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -173,6 +221,7 @@ class LEDService : Service() {
         ledController = LedController()
         registerBatteryStateReceiver()
         refreshPluggedStateSnapshot()
+        mountScreenBrightnessObserver()
         handler.post(activityCheckRunnable)
     }
 
@@ -205,6 +254,10 @@ class LEDService : Service() {
             return START_NOT_STICKY
         }
 
+        // A new start intent can arrive while a delayed shutdown is still pending.
+        // Cancel pending teardown so we don't stop immediately after restarting.
+        reviveIfStopping()
+
         allowBackgroundRun = intent.getBooleanExtra(EXTRA_ALLOW_BACKGROUND_RUN, allowBackgroundRun)
         currentBatteryOverrideWhenPlugged = intent.getBooleanExtra(
             EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
@@ -213,6 +266,10 @@ class LEDService : Service() {
         currentPersistentNotification = intent.getBooleanExtra(
             EXTRA_PERSISTENT_NOTIFICATION,
             currentPersistentNotification
+        )
+        currentAdaptiveBrightness = intent.getBooleanExtra(
+            EXTRA_ADAPTIVE_BRIGHTNESS,
+            currentAdaptiveBrightness
         )
 
         val notification = createNotification()
@@ -284,6 +341,7 @@ class LEDService : Service() {
         currentSensitivity = sensitivity
         isAppProfileSuppressed = false
 
+
         refreshPluggedStateSnapshot()
 
         if (appProfileManager.isEnabled) {
@@ -323,7 +381,15 @@ class LEDService : Service() {
         if (intent.hasExtra("brightness")) {
             val newBrightness = intent.getIntExtra("brightness", currentBrightness).coerceIn(0, 255)
             currentBrightness = newBrightness
-            animation?.setTargetBrightness(currentBrightness)
+            animation?.setTargetBrightness(effectiveBrightness())
+        }
+
+        if (intent.hasExtra(EXTRA_ADAPTIVE_BRIGHTNESS)) {
+            val newAdaptive = intent.getBooleanExtra(EXTRA_ADAPTIVE_BRIGHTNESS, currentAdaptiveBrightness)
+            if (newAdaptive != currentAdaptiveBrightness) {
+                currentAdaptiveBrightness = newAdaptive
+                animation?.setTargetBrightness(effectiveBrightness())
+            }
         }
 
         if (intent.hasExtra("speed")) {
@@ -591,6 +657,9 @@ class LEDService : Service() {
         pendingProjectionRunnable?.let(handler::removeCallbacks)
         pendingProjectionRunnable = null
 
+        // Apply adaptive brightness scaling on top of the user-configured brightness level.
+        val resolvedBrightness = effectiveBrightness()
+
         stopCurrentAnimation()
 
         if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
@@ -603,7 +672,7 @@ class LEDService : Service() {
                             try {
                                 if (isRunning && !isStopping.get()) {
                                     replaceMediaProjection(resultCode, data)
-                                    startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                                    startAnimation(animationType, color, rightColor, resolvedBrightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -629,7 +698,7 @@ class LEDService : Service() {
         } else {
             pendingTransitionRunnable = Runnable {
                 if (isRunning && !isStopping.get()) {
-                    startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                    startAnimation(animationType, color, rightColor, resolvedBrightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                 }
                 isTransitioning.set(false)
                 pendingTransitionRunnable = null
@@ -784,6 +853,7 @@ class LEDService : Service() {
         handler.removeCallbacks(activityCheckRunnable)
         clearPendingCallbacks()
         unregisterBatteryStateReceiver()
+        unmountScreenBrightnessObserver()
         cleanupAndStop()
     }
 
@@ -794,6 +864,14 @@ class LEDService : Service() {
         pendingProjectionRunnable = null
         pendingShutdownRunnable?.let(handler::removeCallbacks)
         pendingShutdownRunnable = null
+        pendingFinalizeStopRunnable?.let(handler::removeCallbacks)
+        pendingFinalizeStopRunnable = null
+    }
+
+    private fun reviveIfStopping() {
+        if (!isStopping.get()) return
+        clearPendingCallbacks()
+        isStopping.set(false)
     }
 
     private fun cleanupAndStop() {
@@ -820,11 +898,13 @@ class LEDService : Service() {
 
                 try {
                     ledController.setLedColor(0, 0, 0, 0, true, true, true, true)
-                    handler.postDelayed({
+                    pendingFinalizeStopRunnable = Runnable {
                         runCatching { ledController.shutdown() }
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
-                    }, LED_OFF_SETTLE_DELAY_MS)
+                        pendingFinalizeStopRunnable = null
+                    }
+                    handler.postDelayed(pendingFinalizeStopRunnable!!, LED_OFF_SETTLE_DELAY_MS)
                 } catch (e: Exception) {
                     e.printStackTrace()
                     stopForeground(STOP_FOREGROUND_REMOVE)
