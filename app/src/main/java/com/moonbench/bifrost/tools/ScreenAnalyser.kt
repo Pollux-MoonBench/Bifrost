@@ -1,14 +1,14 @@
 package com.moonbench.bifrost.tools
 
+import android.accessibilityservice.AccessibilityService
+import android.graphics.Bitmap
 import android.graphics.Color
-import android.hardware.display.VirtualDisplay
-import android.media.Image
-import android.media.ImageReader
-import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.DisplayMetrics
-import java.nio.ByteBuffer
+import android.util.Log
+import com.moonbench.bifrost.services.BifrostAccessibilityService
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -16,7 +16,6 @@ private const val DEFAULT_CAPTURE_WIDTH = 2
 private const val DEFAULT_CAPTURE_HEIGHT = 1
 private const val SINGLE_COLOR_CAPTURE_SIZE = 1
 private const val CUSTOM_SAMPLING_WIDTH = 32
-private const val IMAGE_READER_MAX_IMAGES = 2
 
 private const val SATURATION_BOOST_MULTIPLIER = 2.5f
 private const val SATURATION_BOOST_BASE = 1.0f
@@ -43,6 +42,7 @@ private const val BRIGHTNESS_BLUE_COEFF = 0.114
 
 private const val HUE_CYCLE = 6f
 private const val HUE_STEP = 60f
+private const val TAG = "ScreenAnalyzer"
 
 data class ScreenColors(
     val leftColor: Int = Color.BLACK,
@@ -50,7 +50,7 @@ data class ScreenColors(
 )
 
 class ScreenAnalyzer(
-    private val mediaProjection: MediaProjection,
+    private val displayId: Int,
     private val displayMetrics: DisplayMetrics,
     var performanceProfile: PerformanceProfile = PerformanceProfile.HIGH,
     var useCustomSampling: Boolean = false,
@@ -69,12 +69,11 @@ class ScreenAnalyzer(
     private var lastProcessedTime = 0L
     private var lastEmittedColors: ScreenColors? = null
 
-    private var imageReader: ImageReader? = null
-    private var virtualDisplay: VirtualDisplay? = null
     private var handlerThread: HandlerThread? = null
     private var handler: Handler? = null
-    private var projectionCallback: MediaProjection.Callback? = null
     private var isRunning: Boolean = false
+    private var captureInFlight: Boolean = false
+    private var screenshotCapabilityBlocked: Boolean = false
 
     fun start() {
         if (isRunning) return
@@ -96,97 +95,139 @@ class ScreenAnalyzer(
 
         handlerThread = HandlerThread("ScreenCapture").apply { start() }
         handler = Handler(handlerThread!!.looper)
-
-        projectionCallback = object : MediaProjection.Callback() {
-            override fun onStop() {
-                stop()
-            }
-        }
-        mediaProjection.registerCallback(projectionCallback!!, handler)
-
-        imageReader = ImageReader.newInstance(
-            captureWidth,
-            captureHeight,
-            android.graphics.PixelFormat.RGBA_8888,
-            IMAGE_READER_MAX_IMAGES
-        )
-
-        imageReader?.setOnImageAvailableListener({ reader ->
-            if (!isRunning) {
-                val img = reader.acquireLatestImage()
-                img?.close()
-                return@setOnImageAvailableListener
-            }
-
-            val now = System.currentTimeMillis()
-            val image = reader.acquireLatestImage()
-
-            if (image != null) {
-                if (performanceProfile == PerformanceProfile.RAGNAROK || now - lastProcessedTime >= performanceProfile.intervalMs) {
-                    processImage(image)
-                    lastProcessedTime = now
-                }
-                image.close()
-            }
-        }, handler)
-
-        virtualDisplay = mediaProjection.createVirtualDisplay(
-            "ScreenCapture",
-            captureWidth,
-            captureHeight,
-            displayMetrics.densityDpi,
-            android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface,
-            null,
-            handler
-        )
+        scheduleNextCapture(0L)
     }
 
     fun stop() {
         if (!isRunning) return
         isRunning = false
-
-        virtualDisplay?.release()
-        imageReader?.close()
         handlerThread?.quitSafely()
-
-        projectionCallback?.let {
-            mediaProjection.unregisterCallback(it)
-        }
-
-        virtualDisplay = null
-        imageReader = null
         handlerThread = null
         handler = null
-        projectionCallback = null
+        captureInFlight = false
+        screenshotCapabilityBlocked = false
         lastEmittedColors = null
     }
 
-    private fun processImage(image: Image) {
+    private fun scheduleNextCapture(delayMs: Long) {
+        handler?.postDelayed({ captureFrame() }, delayMs)
+    }
+
+    private fun captureFrame() {
+        if (!isRunning || captureInFlight) {
+            scheduleNextCapture(performanceProfile.intervalMs.coerceAtLeast(16L))
+            return
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (performanceProfile != PerformanceProfile.RAGNAROK &&
+            now - lastProcessedTime < performanceProfile.intervalMs
+        ) {
+            scheduleNextCapture((performanceProfile.intervalMs - (now - lastProcessedTime)).coerceAtLeast(16L))
+            return
+        }
+
+        val service = BifrostAccessibilityService.instance
+        if (service == null) {
+            Log.w(TAG, "captureFrame: AccessibilityService instance is null")
+            scheduleNextCapture(500L)
+            return
+        }
+
+        // Double-check that service is actually enabled in system settings
+        if (!BifrostAccessibilityService.isEnabled(service)) {
+            Log.w(TAG, "captureFrame: AccessibilityService not enabled in system settings")
+            screenshotCapabilityBlocked = true
+            scheduleNextCapture(2000L)
+            return
+        }
+
+        if (screenshotCapabilityBlocked) {
+            scheduleNextCapture(1000L)
+            return
+        }
+
+        captureInFlight = true
+        try {
+            Log.d(TAG, "captureFrame: attempting takeScreenshot on display $displayId")
+            service.takeScreenshot(
+                displayId,
+                service.mainExecutor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        val hwBitmap = Bitmap.wrapHardwareBuffer(
+                            screenshot.hardwareBuffer,
+                            screenshot.colorSpace
+                        )
+                        val bitmap = hwBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                        hwBitmap?.recycle()
+                        screenshot.hardwareBuffer.close()
+
+                        if (!isRunning || bitmap == null) {
+                            bitmap?.recycle()
+                            captureInFlight = false
+                            scheduleNextCapture(performanceProfile.intervalMs.coerceAtLeast(16L))
+                            return
+                        }
+
+                        handler?.post {
+                            try {
+                                processBitmap(bitmap)
+                                lastProcessedTime = SystemClock.elapsedRealtime()
+                            } finally {
+                                bitmap.recycle()
+                                captureInFlight = false
+                                if (isRunning) {
+                                    scheduleNextCapture(performanceProfile.intervalMs.coerceAtLeast(16L))
+                                }
+                            }
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        Log.w(TAG, "captureFrame: onFailure errorCode=$errorCode")
+                        captureInFlight = false
+                        scheduleNextCapture(250L)
+                    }
+                }
+            )
+        } catch (securityException: SecurityException) {
+            Log.e(TAG, "captureFrame: SecurityException - accessibility screenshot capability unavailable or service not properly enabled", securityException)
+            screenshotCapabilityBlocked = true
+            captureInFlight = false
+            onColorsAnalyzed(ScreenColors(Color.BLACK, Color.BLACK))
+            scheduleNextCapture(2000L)
+        } catch (t: Throwable) {
+            Log.e(TAG, "captureFrame: Unexpected exception", t)
+            captureInFlight = false
+            scheduleNextCapture(500L)
+        }
+    }
+
+    private fun processBitmap(bitmap: Bitmap) {
         if (!isRunning) return
 
-        val plane = image.planes[0]
-        val buffer = plane.buffer
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
+        val sampled = Bitmap.createScaledBitmap(bitmap, captureWidth, captureHeight, true)
 
         val colors = if (useSingleColor) {
             val singleColor = if (useCustomSampling) {
-                averageRegionTopWeighted(buffer, 0, captureWidth - 1, 0, captureHeight - 1, rowStride, pixelStride)
+                averageRegionTopWeighted(sampled, 0, captureWidth - 1, 0, captureHeight - 1)
             } else {
-                getPixelColor(buffer, 0, 0, rowStride, pixelStride)
+                getPixelColor(sampled, 0, 0)
             }
             ScreenColors(leftColor = singleColor, rightColor = singleColor)
         } else if (useCustomSampling) {
             val midPoint = captureWidth / 2
-            val leftColor = averageRegionTopWeighted(buffer, 0, midPoint - 1, 0, captureHeight - 1, rowStride, pixelStride)
-            val rightColor = averageRegionTopWeighted(buffer, midPoint, captureWidth - 1, 0, captureHeight - 1, rowStride, pixelStride)
+            val leftColor = averageRegionTopWeighted(sampled, 0, midPoint - 1, 0, captureHeight - 1)
+            val rightColor = averageRegionTopWeighted(sampled, midPoint, captureWidth - 1, 0, captureHeight - 1)
             ScreenColors(leftColor = leftColor, rightColor = rightColor)
         } else {
-            val leftColor = getPixelColor(buffer, 0, 0, rowStride, pixelStride)
-            val rightColor = getPixelColor(buffer, 1, 0, rowStride, pixelStride)
+            val leftColor = getPixelColor(sampled, 0, 0)
+            val rightColor = getPixelColor(sampled, 1, 0)
             ScreenColors(leftColor = leftColor, rightColor = rightColor)
         }
+
+        sampled.recycle()
 
         val boostedColors = ScreenColors(
             leftColor = applySaturationBoost(colors.leftColor),
@@ -199,25 +240,19 @@ class ScreenAnalyzer(
         }
     }
 
-    private fun getPixelColor(buffer: ByteBuffer, x: Int, y: Int, rowStride: Int, pixelStride: Int): Int {
-        val offset = y * rowStride + x * pixelStride
-        if (offset < 0 || offset + 2 >= buffer.limit()) {
+    private fun getPixelColor(bitmap: Bitmap, x: Int, y: Int): Int {
+        if (x !in 0 until bitmap.width || y !in 0 until bitmap.height) {
             return Color.BLACK
         }
-        val r = buffer.get(offset).toInt() and 0xFF
-        val g = buffer.get(offset + 1).toInt() and 0xFF
-        val b = buffer.get(offset + 2).toInt() and 0xFF
-        return Color.rgb(r, g, b)
+        return bitmap.getPixel(x, y)
     }
 
     private fun averageRegionTopWeighted(
-        buffer: ByteBuffer,
+        bitmap: Bitmap,
         startX: Int,
         endX: Int,
         startY: Int,
-        endY: Int,
-        rowStride: Int,
-        pixelStride: Int
+        endY: Int
     ): Int {
         val pixelCount = ((endX - startX + 1) * (endY - startY + 1)).coerceAtLeast(1)
         val topCount = (pixelCount * topPixelPercentage).toInt().coerceAtLeast(1)
@@ -230,12 +265,12 @@ class ScreenAnalyzer(
 
         for (y in startY..endY) {
             for (x in startX..endX) {
-                val offset = y * rowStride + x * pixelStride
-                if (offset < 0 || offset + 2 >= buffer.limit()) continue
+                if (x !in 0 until bitmap.width || y !in 0 until bitmap.height) continue
 
-                val r = buffer.get(offset).toInt() and 0xFF
-                val g = buffer.get(offset + 1).toInt() and 0xFF
-                val b = buffer.get(offset + 2).toInt() and 0xFF
+                val color = bitmap.getPixel(x, y)
+                val r = Color.red(color)
+                val g = Color.green(color)
+                val b = Color.blue(color)
 
                 val weight = calculatePixelWeight(r, g, b)
                 if (selectedCount < topCount) {

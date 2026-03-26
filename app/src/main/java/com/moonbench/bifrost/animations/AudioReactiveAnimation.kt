@@ -1,19 +1,17 @@
 package com.moonbench.bifrost.animations
 
+import android.content.Context
 import android.graphics.Color
-import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.HandlerThread
-import android.util.DisplayMetrics
-import com.moonbench.bifrost.tools.AudioAnalyzer
 import com.moonbench.bifrost.tools.LedController
+import com.moonbench.bifrost.tools.MicrophoneAudioAnalyzer
 import com.moonbench.bifrost.tools.PerformanceProfile
 import kotlin.math.roundToInt
 
 class AudioReactiveAnimation(
     ledController: LedController,
-    private val mediaProjection: MediaProjection,
-    private val displayMetrics: DisplayMetrics,
+    private val context: Context,
     private val baseColor: Int,
     private val baseRightColor: Int = baseColor,
     private val profile: PerformanceProfile
@@ -22,7 +20,7 @@ class AudioReactiveAnimation(
     override val type: LedAnimationType = LedAnimationType.AUDIO_REACTIVE
     override val needsColorSelection: Boolean = true
 
-    private var audioAnalyzer: AudioAnalyzer? = null
+    private var audioAnalyzer: MicrophoneAudioAnalyzer? = null
 
     private var targetBrightness: Int = 255
     private var currentBrightness: Int = 0
@@ -96,7 +94,7 @@ class AudioReactiveAnimation(
         updateHandler = Handler(updateThread!!.looper)
         updateHandler?.post(ledUpdateRunnable)
 
-        audioAnalyzer = AudioAnalyzer(mediaProjection, profile) { intensity ->
+        audioAnalyzer = MicrophoneAudioAnalyzer(context, profile) { intensity ->
             pendingIntensity = intensity
             hasAudioUpdate = true
         }

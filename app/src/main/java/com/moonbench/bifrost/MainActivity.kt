@@ -59,6 +59,7 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.services.AppProfileManager
+import com.moonbench.bifrost.services.BifrostAccessibilityService
 import com.moonbench.bifrost.services.HeimdallStartupManager
 import com.moonbench.bifrost.services.LEDService
 import com.moonbench.bifrost.services.ServiceController
@@ -165,6 +166,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
+        private const val PREF_STARTUP_GUIDE_DONE = "startup_guide_done"
         private const val EXTRA_DISPLAY_RELAUNCH_ATTEMPT = "display_relaunch_attempt"
         private const val MAX_DISPLAY_RELAUNCH_ATTEMPTS = 3
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
@@ -356,14 +358,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-
-        setupStatusBar()
 
         if (intent.getBooleanExtra("finish", false)) {
             finishAffinity()
             return
         }
+
+        if (shouldLaunchStartupGuide()) {
+            startActivity(Intent(this, StartupGuideActivity::class.java))
+            finish()
+            return
+        }
+
+        setContentView(R.layout.activity_main)
+
+        setupStatusBar()
 
         if (maybeRelaunchOnCorrectDisplay()) return
 
@@ -379,6 +388,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         initializeApp()
+    }
+
+    private fun shouldLaunchStartupGuide(): Boolean {
+        val guideDone = prefs.getBoolean(PREF_STARTUP_GUIDE_DONE, false)
+        val notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val accessibilityEnabled = BifrostAccessibilityService.isEnabled(this)
+        val audioGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+        return !guideDone || !notificationsGranted || !accessibilityEnabled || !audioGranted
     }
 
     override fun onNewIntent(intent: Intent?) {

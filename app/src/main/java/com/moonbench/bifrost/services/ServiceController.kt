@@ -3,6 +3,7 @@ package com.moonbench.bifrost.services
 import android.content.Intent
 import android.os.Handler
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 
 class ServiceController(
     private val activity: AppCompatActivity,
@@ -55,7 +56,7 @@ class ServiceController(
         pendingServiceOperation = Runnable {
             if (token != operationToken) return@Runnable
             try {
-                activity.startService(createIntent())
+                ContextCompat.startForegroundService(activity, createIntent())
             } finally {
                 finishOperationWindowWithGraceDelay()
             }
@@ -97,7 +98,7 @@ class ServiceController(
                 activity.stopService(Intent(activity, LEDService::class.java))
                 handler.postDelayed({
                     if (token != operationToken) return@postDelayed
-                    activity.startService(createIntent())
+                    ContextCompat.startForegroundService(activity, createIntent())
                     finishOperationWindowWithGraceDelay()
                 }, restartDelay)
             } catch (e: Exception) {

@@ -1,7 +1,6 @@
 package com.moonbench.bifrost.services
 
 import android.app.Activity
-import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -68,6 +67,7 @@ class LEDService : Service() {
         const val CHANNEL_ID = "LEDServiceChannel"
         const val NOTIFICATION_ID = 4242
         const val ACTION_STOP = "com.moonbench.bifrost.STOP"
+        const val ACTION_KILL = "com.moonbench.bifrost.KILL"
         const val ACTION_UPDATE_PARAMS = "com.moonbench.bifrost.UPDATE_PARAMS"
         const val ACTION_FORCE_APP_PROFILE_RESOLUTION = "com.moonbench.bifrost.FORCE_APP_PROFILE_RESOLUTION"
         const val ACTION_SUPPLY_PROJECTION = "com.moonbench.bifrost.SUPPLY_PROJECTION"
@@ -150,19 +150,14 @@ class LEDService : Service() {
         override fun run() {
             if (!isRunning || isStopping.get()) return
 
-            if (!allowBackgroundRun && !isActivityRunning()) {
-                Log.d(TAG, "activityCheckRunnable: activity not running & no background run → stopping")
-                cleanupAndStop()
+            Log.d(TAG, "activityCheckRunnable: tick — appProfileEnabled=${appProfileManager.isEnabled}, currentAnimationType=$currentAnimationType, activeAnimationType=$activeAnimationType, currentAnimation=${currentAnimation != null}, isTransitioning=${isTransitioning.get()}")
+            checkAutoProfileSwitch()
+            val nextDelay = if (appProfileManager.isEnabled) {
+                ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
             } else {
-                Log.d(TAG, "activityCheckRunnable: tick — appProfileEnabled=${appProfileManager.isEnabled}, currentAnimationType=$currentAnimationType, activeAnimationType=$activeAnimationType, currentAnimation=${currentAnimation != null}, isTransitioning=${isTransitioning.get()}")
-                checkAutoProfileSwitch()
-                val nextDelay = if (appProfileManager.isEnabled) {
-                    ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
-                } else {
-                    ACTIVITY_CHECK_INTERVAL_MS
-                }
-                handler.postDelayed(this, nextDelay)
+                ACTIVITY_CHECK_INTERVAL_MS
             }
+            handler.postDelayed(this, nextDelay)
         }
     }
 
@@ -178,12 +173,21 @@ class LEDService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
-            stopSelf()
-            return START_NOT_STICKY
+            return START_STICKY
         }
 
         if (intent.action == ACTION_STOP) {
             cleanupAndStop()
+            return START_NOT_STICKY
+        }
+
+        if (intent.action == ACTION_KILL) {
+            cleanupAndStop()
+            val finishIntent = Intent(this, MainActivity::class.java).apply {
+                putExtra("finish", true)
+                this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            startActivity(finishIntent)
             return START_NOT_STICKY
         }
 
@@ -216,15 +220,7 @@ class LEDService : Service() {
         )
 
         val notification = createNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        startForeground(NOTIFICATION_ID, notification)
 
         isRunning = true
 
@@ -298,7 +294,7 @@ class LEDService : Service() {
             restartAnimationForCurrentState(force = true)
         }
 
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun handleUpdateParams(intent: Intent) {
@@ -758,25 +754,9 @@ class LEDService : Service() {
         return value.takeUnless { it == COLOR_OVERRIDE_UNSET }
     }
 
-    private fun isActivityRunning(): Boolean {
-        return runCatching {
-            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val tasks = activityManager.appTasks
-            for (task in tasks) {
-                val componentName = task.taskInfo.baseActivity
-                if (componentName?.packageName == packageName) {
-                    return@runCatching true
-                }
-            }
-            false
-        }.getOrDefault(false)
-    }
-
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        if (!allowBackgroundRun) {
-            cleanupAndStop()
-        }
+        // Keep running as a true foreground daemon; explicit stop/kill is required.
     }
 
     override fun onDestroy() {
@@ -867,6 +847,15 @@ class LEDService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+        val killIntent = Intent(this, LEDService::class.java).apply { action = ACTION_KILL }
+        val killPendingIntent =
+            PendingIntent.getService(
+                this,
+                2,
+                killIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
         val mainIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -881,6 +870,7 @@ class LEDService : Service() {
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher_foreground))
             .setContentIntent(mainPendingIntent)
             .addAction(android.R.drawable.ic_delete, "Stop", stopPendingIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kill", killPendingIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(currentPersistentNotification)
             .build()
@@ -1033,9 +1023,7 @@ class LEDService : Service() {
     }
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
-        return type == LedAnimationType.AMBILIGHT ||
-                type == LedAnimationType.AUDIO_REACTIVE ||
-                type == LedAnimationType.AMBIAURORA
+        return false
     }
 
     private fun createAnimation(
@@ -1047,11 +1035,10 @@ class LEDService : Service() {
     ): LedAnimation? {
         return when (type) {
             LedAnimationType.AMBILIGHT -> {
-                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbilightAnimation(
                     ledController,
-                    projection,
+                    currentAmbilightDisplayId,
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,
@@ -1060,23 +1047,20 @@ class LEDService : Service() {
                 )
             }
             LedAnimationType.AUDIO_REACTIVE -> {
-                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
-                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AudioReactiveAnimation(
                     ledController,
-                    projection,
-                    displayMetrics,
+                    this,
                     color,
                     rightColor,
                     profile
                 )
             }
             LedAnimationType.AMBIAURORA -> {
-                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbiAuroraAnimation(
                     ledController,
-                    projection,
+                    this,
+                    currentAmbilightDisplayId,
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,

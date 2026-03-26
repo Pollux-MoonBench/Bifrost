@@ -1,20 +1,19 @@
 package com.moonbench.bifrost.tools
 
-import android.media.AudioAttributes
+import android.Manifest
+import android.content.Context
 import android.media.AudioFormat
-import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.AudioRouting
-import android.media.projection.MediaProjection
-import android.os.Build
+import android.media.MediaRecorder
 import android.os.Process
 import android.util.Log
-import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import kotlin.math.abs
 
-@RequiresApi(Build.VERSION_CODES.Q)
 class AudioAnalyzer(
-    private val mediaProjection: MediaProjection,
+    private val context: Context,
     private val performanceProfile: PerformanceProfile,
     private val callback: (Float) -> Unit
 ) {
@@ -35,16 +34,14 @@ class AudioAnalyzer(
     private var sampleBuffer = ShortArray(256)
 
     fun start() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         if (running) return
 
-        try {
-            val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
-                .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-                .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                .build()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            callback(0f)
+            return
+        }
 
+        try {
             val sampleRate = SAMPLE_RATE_HZ
             val channelConfig = AudioFormat.CHANNEL_IN_MONO
             val encoding = AudioFormat.ENCODING_PCM_16BIT
@@ -53,7 +50,7 @@ class AudioAnalyzer(
             sampleBuffer = ShortArray((bufferSize / 2).coerceAtLeast(128))
 
             audioRecord = AudioRecord.Builder()
-                .setAudioPlaybackCaptureConfig(config)
+                .setAudioSource(MediaRecorder.AudioSource.MIC)
                 .setAudioFormat(
                     AudioFormat.Builder()
                         .setEncoding(encoding)

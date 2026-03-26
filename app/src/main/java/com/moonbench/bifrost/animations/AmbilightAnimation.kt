@@ -1,7 +1,6 @@
 package com.moonbench.bifrost.animations
 
 import android.graphics.Color
-import android.media.projection.MediaProjection
 import android.util.DisplayMetrics
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
@@ -11,7 +10,7 @@ import kotlin.math.roundToInt
 
 class AmbilightAnimation(
     ledController: LedController,
-    private val mediaProjection: MediaProjection,
+    private val displayId: Int,
     private val displayMetrics: DisplayMetrics,
     private val profile: PerformanceProfile,
     private val useCustomSampling: Boolean,
@@ -54,7 +53,7 @@ class AmbilightAnimation(
 
     override fun start() {
         screenAnalyzer = ScreenAnalyzer(
-            mediaProjection,
+            displayId,
             displayMetrics,
             profile,
             useCustomSampling,

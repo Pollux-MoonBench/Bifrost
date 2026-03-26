@@ -1,12 +1,12 @@
 package com.moonbench.bifrost.animations
 
+import android.content.Context
 import android.graphics.Color
-import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.DisplayMetrics
-import com.moonbench.bifrost.tools.AudioAnalyzer
 import com.moonbench.bifrost.tools.LedController
+import com.moonbench.bifrost.tools.MicrophoneAudioAnalyzer
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.tools.ScreenAnalyzer
 import com.moonbench.bifrost.tools.ScreenColors
@@ -14,7 +14,8 @@ import kotlin.math.roundToInt
 
 class AmbiAuroraAnimation(
     ledController: LedController,
-    private val mediaProjection: MediaProjection,
+    private val context: Context,
+    private val displayId: Int,
     private val displayMetrics: DisplayMetrics,
     private val profile: PerformanceProfile,
     private val useCustomSampling: Boolean,
@@ -26,7 +27,7 @@ class AmbiAuroraAnimation(
     override val needsColorSelection: Boolean = false
 
     private var screenAnalyzer: ScreenAnalyzer? = null
-    private var audioAnalyzer: AudioAnalyzer? = null
+    private var audioAnalyzer: MicrophoneAudioAnalyzer? = null
 
     private var currentLeftColor = Color.BLACK
     private var currentRightColor = Color.BLACK
@@ -128,7 +129,7 @@ class AmbiAuroraAnimation(
         updateHandler?.post(ledUpdateRunnable)
 
         screenAnalyzer = ScreenAnalyzer(
-            mediaProjection,
+            displayId,
             displayMetrics,
             profile,
             useCustomSampling,
@@ -140,7 +141,7 @@ class AmbiAuroraAnimation(
         }
         screenAnalyzer?.start()
 
-        audioAnalyzer = AudioAnalyzer(mediaProjection, profile) { intensity ->
+        audioAnalyzer = MicrophoneAudioAnalyzer(context, profile) { intensity ->
             pendingIntensity = intensity
             hasAudioUpdate = true
         }
