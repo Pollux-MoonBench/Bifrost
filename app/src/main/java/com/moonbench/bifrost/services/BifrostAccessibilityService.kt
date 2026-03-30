@@ -3,7 +3,6 @@ package com.moonbench.bifrost.services
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
-import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -37,19 +36,9 @@ class BifrostAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         instance = this
         Log.d("BifrostA11yService", "onServiceConnected called")
-        // Enable interactive window retrieval - this is required for screenshot capability
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            serviceInfo = serviceInfo?.apply {
-                flags = flags or 
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_REQUEST_ACCESSIBILITY_BUTTON
-                Log.d("BifrostA11yService", "Set serviceInfo flags (API 30+): $flags")
-            }
-        } else {
-            serviceInfo = serviceInfo?.apply {
-                flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
-                Log.d("BifrostA11yService", "Set serviceInfo flags (pre-API 30): $flags")
-            }
+        serviceInfo = serviceInfo.apply {
+            flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            Log.d("BifrostA11yService", "Set serviceInfo flags: $flags")
         }
     }
 

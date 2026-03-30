@@ -1,12 +1,14 @@
 package com.moonbench.bifrost.animations
 
-import android.content.Context
 import android.graphics.Color
+import android.media.projection.MediaProjection
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.DisplayMetrics
+import android.util.Log
+import com.moonbench.bifrost.tools.AudioAnalyzer
 import com.moonbench.bifrost.tools.LedController
-import com.moonbench.bifrost.tools.MicrophoneAudioAnalyzer
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.tools.ScreenAnalyzer
 import com.moonbench.bifrost.tools.ScreenColors
@@ -14,7 +16,7 @@ import kotlin.math.roundToInt
 
 class AmbiAuroraAnimation(
     ledController: LedController,
-    private val context: Context,
+    private val mediaProjection: MediaProjection?,
     private val displayId: Int,
     private val displayMetrics: DisplayMetrics,
     private val profile: PerformanceProfile,
@@ -26,8 +28,12 @@ class AmbiAuroraAnimation(
     override val type: LedAnimationType = LedAnimationType.AMBIAURORA
     override val needsColorSelection: Boolean = false
 
+    companion object {
+        private const val TAG = "AmbiAuroraAnimation"
+    }
+
     private var screenAnalyzer: ScreenAnalyzer? = null
-    private var audioAnalyzer: MicrophoneAudioAnalyzer? = null
+    private var audioAnalyzer: AudioAnalyzer? = null
 
     private var currentLeftColor = Color.BLACK
     private var currentRightColor = Color.BLACK
@@ -118,7 +124,11 @@ class AmbiAuroraAnimation(
     }
 
     override fun start() {
-        if (isRunning) return
+        if (isRunning) {
+            Log.w(TAG, "start() called but already running")
+            return
+        }
+        Log.d(TAG, "start() called - initializing AmbiAurora animation (displayId=$displayId)")
         isRunning = true
 
         updateThread = HandlerThread("AmbiAuroraUpdate").apply {
@@ -138,18 +148,34 @@ class AmbiAuroraAnimation(
         ) { colors ->
             pendingColors = colors
             hasColorUpdate = true
+            Log.v(TAG, "Screen colors received: left=#${Integer.toHexString(colors.leftColor)}, right=#${Integer.toHexString(colors.rightColor)}")
         }
+        Log.d(TAG, "ScreenAnalyzer created, calling start()")
         screenAnalyzer?.start()
 
-        audioAnalyzer = MicrophoneAudioAnalyzer(context, profile) { intensity ->
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || mediaProjection == null) {
+            Log.w(TAG, "Internal audio capture unavailable: missing MediaProjection or API < 29")
+            pendingIntensity = 0f
+            hasAudioUpdate = true
+            return
+        }
+
+        audioAnalyzer = AudioAnalyzer(mediaProjection, profile) { intensity ->
             pendingIntensity = intensity
             hasAudioUpdate = true
+            Log.v(TAG, "Audio intensity received: ${"%.3f".format(intensity)}")
         }
+        Log.d(TAG, "AudioAnalyzer created, starting internal audio capture")
         audioAnalyzer?.start()
+        Log.d(TAG, "AmbiAurora animation started successfully")
     }
 
     override fun stop() {
-        if (!isRunning) return
+        if (!isRunning) {
+            Log.w(TAG, "stop() called but not running")
+            return
+        }
+        Log.d(TAG, "stop() called - stopping AmbiAurora animation")
         isRunning = false
         hasColorUpdate = false
         hasAudioUpdate = false
@@ -167,6 +193,7 @@ class AmbiAuroraAnimation(
 
         currentBrightness = 0
         applyLeds()
+        Log.d(TAG, "AmbiAurora animation stopped")
     }
 
     private fun colorLerpFactor(): Float {

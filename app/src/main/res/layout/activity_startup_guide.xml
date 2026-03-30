@@ -124,8 +124,9 @@
                             app:cornerRadius="12dp" />
                     </LinearLayout>
 
+
                     <LinearLayout
-                        android:id="@+id/pageAudio"
+                        android:id="@+id/pageUsage"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="22dp"
@@ -135,7 +136,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Allow internal audio access"
+                            android:text="Allow usage access"
                             android:textColor="@color/bifrost_text"
                             android:textSize="20sp"
                             android:textStyle="bold" />
@@ -144,16 +145,16 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
-                            android:text="Audio Reactive reacts to game/music output (SFX, soundtrack), not to your voice."
+                            android:text="Needed for App Profile mode so Bifrost can detect foreground apps and auto-switch presets."
                             android:textColor="@color/bifrost_text_secondary"
                             android:textSize="14sp" />
 
                         <com.google.android.material.button.MaterialButton
-                            android:id="@+id/buttonGrantAudio"
+                            android:id="@+id/buttonOpenUsageAccess"
                             android:layout_width="match_parent"
                             android:layout_height="48dp"
                             android:layout_marginTop="16dp"
-                            android:text="Allow audio access"
+                            android:text="Open usage access settings"
                             android:textAllCaps="false"
                             app:backgroundTint="@color/bifrost_accent"
                             app:cornerRadius="12dp" />
@@ -170,32 +171,55 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Ready to launch"
+                            android:gravity="center_horizontal"
+                            android:text="\u2728"
+                            android:textSize="42sp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_horizontal"
+                            android:text="Setup Complete"
                             android:textColor="@color/bifrost_text"
-                            android:textSize="20sp"
+                            android:textSize="22sp"
                             android:textStyle="bold" />
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
-                            android:text="Bifrost can now keep running in background until you tap Stop or Kill in the ongoing notification."
+                            android:gravity="center_horizontal"
+                            android:text="Your rig is ready. Ambilight, App Profiles, and audio-reactive effects are now unlocked."
                             android:textColor="@color/bifrost_text_secondary"
                             android:textSize="14sp" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/buttonContinue"
-                            android:layout_width="match_parent"
-                            android:layout_height="48dp"
-                            android:layout_marginTop="16dp"
-                            android:text="Continue"
-                            android:textAllCaps="false"
-                            app:backgroundTint="@color/bifrost_accent"
-                            app:cornerRadius="12dp" />
                     </LinearLayout>
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+
+            <!-- Skip button kept as a small secondary action -->
+            <TextView
+                android:id="@+id/buttonContinue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:padding="8dp"
+                android:text="Skip for now"
+                android:textColor="@color/bifrost_text_secondary"
+                android:textSize="12sp"
+                android:alpha="0.6"
+                android:background="?selectableItemBackground" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/buttonCompleteSetup"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:text="Complete setup"
+                android:textAllCaps="false"
+                android:visibility="gone"
+                app:backgroundTint="@color/bifrost_accent"
+                app:cornerRadius="12dp" />
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

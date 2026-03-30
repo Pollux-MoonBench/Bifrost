@@ -5,6 +5,9 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.ActivityOptions
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -21,6 +24,7 @@ import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.util.Log
 import android.view.Display
 import android.view.DragEvent
 import android.view.LayoutInflater
@@ -48,6 +52,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.google.android.material.button.MaterialButton
@@ -142,6 +148,7 @@ class MainActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("bifrost_prefs", MODE_PRIVATE) }
 
     companion object {
+        private const val TAG = "BIBI"
         var mediaProjectionResultCode: Int? = null
         var mediaProjectionData: Intent? = null
         private const val DEBOUNCE_DELAY = 500L
@@ -176,6 +183,8 @@ class MainActivity : AppCompatActivity() {
         private const val EXTRA_CPU_COOL_COLOR_OVERRIDE = "cpuCoolColorOverride"
         private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
         private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
+        private const val AUTOSTART_PERMISSION_CHANNEL_ID = "bifrost_autostart_permission"
+        private const val AUTOSTART_PERMISSION_NOTIFICATION_ID = 4245
 
         private val DEFAULT_BATTERY_LOW_COLOR = Color.rgb(255, 0, 0)
         private val DEFAULT_BATTERY_MID_COLOR = Color.rgb(255, 255, 0)
@@ -253,7 +262,7 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
-                if (selectedAnimationType.needsMediaProjection) {
+                if (requiresProjectionToken(selectedAnimationType)) {
                     if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                         serviceController.startDebounced { createLedServiceIntent() }
                     } else {
@@ -376,28 +385,11 @@ class MainActivity : AppCompatActivity() {
 
         if (maybeRelaunchOnCorrectDisplay()) return
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                launchNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                return
-            }
-        }
-
         initializeApp()
     }
 
     private fun shouldLaunchStartupGuide(): Boolean {
-        val guideDone = prefs.getBoolean(PREF_STARTUP_GUIDE_DONE, false)
-        val notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        val accessibilityEnabled = BifrostAccessibilityService.isEnabled(this)
-        val audioGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-
-        return !guideDone || !notificationsGranted || !accessibilityEnabled || !audioGranted
+        return !prefs.getBoolean(PREF_STARTUP_GUIDE_DONE, false)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -1616,8 +1608,7 @@ class MainActivity : AppCompatActivity() {
         if (isChecked && !appProfileManager.hasUsageStatsPermission(this)) {
             syncAppProfileSwitches(false)
             updateManualPresetSwitchingUi(false)
-            Toast.makeText(this, "Grant usage access to Bifrost in Settings", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            Toast.makeText(this, "Usage access is required and should be granted from startup setup", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -1854,7 +1845,7 @@ class MainActivity : AppCompatActivity() {
                     updateParameterVisibility()
 
                     if (wasRunning) {
-                        if (selectedAnimationType.needsMediaProjection) {
+                        if (requiresProjectionToken(selectedAnimationType)) {
                             if (mediaProjectionResultCode == null || mediaProjectionData == null) {
                                 checkRagnarokWarningAndRestart(true)
                             } else {
@@ -1893,7 +1884,7 @@ class MainActivity : AppCompatActivity() {
                     val newProfile = profilesList[position]
 
                     if (newProfile == PerformanceProfile.RAGNAROK &&
-                        selectedAnimationType.needsMediaProjection
+                        requiresProjectionToken(selectedAnimationType)
                     ) {
                         val presetName = getSelectedPresetName()
                         val preset = presetController.getPresets()
@@ -2225,18 +2216,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupPersistentNotificationSwitch() {
-        selectedPersistentNotification =
-            prefs.getBoolean(PREF_PERSISTENT_NOTIFICATION, true)
-        persistentNotificationSwitch.isChecked = selectedPersistentNotification
-
-        persistentNotificationSwitch.setOnCheckedChangeListener { _, isChecked ->
-            selectedPersistentNotification = isChecked
-            prefs.edit().putBoolean(PREF_PERSISTENT_NOTIFICATION, isChecked).apply()
-
-            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
-                sendLiveUpdateToLedService()
-            }
-        }
+        selectedPersistentNotification = true
+        prefs.edit().putBoolean(PREF_PERSISTENT_NOTIFICATION, true).apply()
+        persistentNotificationSwitch.isChecked = true
+        persistentNotificationSwitch.isEnabled = false
+        persistentNotificationSwitch.alpha = 0.55f
     }
 
     private fun setupThorScreenPreference() {
@@ -2261,7 +2245,7 @@ class MainActivity : AppCompatActivity() {
             // Invalidate cached screen-capture grant so next start targets the new display
             mediaProjectionResultCode = null
             mediaProjectionData = null
-            if (LEDService.isRunning && selectedAnimationType.needsMediaProjection) {
+            if (LEDService.isRunning && requiresProjectionToken(selectedAnimationType)) {
                 serviceController.restartDebounced(needsMediaProjectionCheck = true) { createLedServiceIntent() }
             }
         }
@@ -2311,13 +2295,50 @@ class MainActivity : AppCompatActivity() {
     private fun maybeAutoStartHeimdallOnLaunch() {
         if (!HeimdallStartupManager.isAutoStartEnabled(prefs) || LEDService.isRunning) return
         if (!checkNotificationPermission()) return
-        if (selectedAnimationType.needsMediaProjection &&
+        if (requiresProjectionToken(selectedAnimationType) &&
             (mediaProjectionResultCode == null || mediaProjectionData == null)
         ) {
+            showProjectionPermissionRequiredNotification()
             return
         }
 
         serviceToggle.isChecked = true
+    }
+
+    private fun showProjectionPermissionRequiredNotification() {
+        createAutoStartPermissionChannelIfNeeded()
+
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            AUTOSTART_PERMISSION_NOTIFICATION_ID,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, AUTOSTART_PERMISSION_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_small)
+            .setContentTitle("Permission needed for auto-start")
+            .setContentText("Tap to grant Android capture consent for internal audio animations.")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        NotificationManagerCompat.from(this).notify(AUTOSTART_PERMISSION_NOTIFICATION_ID, notification)
+    }
+
+    private fun createAutoStartPermissionChannelIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(
+            AUTOSTART_PERMISSION_CHANNEL_ID,
+            "Bifrost auto-start permissions",
+            NotificationManager.IMPORTANCE_HIGH
+        )
+        manager.createNotificationChannel(channel)
     }
 
     private fun setupAppProfileFeature() {
@@ -2577,7 +2598,7 @@ class MainActivity : AppCompatActivity() {
                     if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
                         // Just keep the service running; the periodic check will
                         // resolve the correct preset.
-                    } else if (selectedAnimationType.needsMediaProjection) {
+                    } else if (requiresProjectionToken(selectedAnimationType)) {
                         if (mediaProjectionResultCode == null || mediaProjectionData == null) {
                             handleMediaProjectionRequirement()
                         } else {
@@ -2763,7 +2784,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateParameterVisibility() {
         val needsColor = selectedAnimationType.needsColorSelection
-        val needsProfile = selectedAnimationType.needsMediaProjection
+        val needsProfile = requiresProjectionToken(selectedAnimationType)
         val needsSpeed = selectedAnimationType.supportsSpeed
         val needsSmoothness = selectedAnimationType.supportsSmoothness
         val needsSensitivity = selectedAnimationType.supportsAudioSensitivity
@@ -2872,12 +2893,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkRagnarokWarningAndRestart(needsMediaProjectionCheck: Boolean = false) {
+        if (!checkRequiredPermissionsForSelection(selectedAnimationType)) return
+
         val presetName = getSelectedPresetName()
         val preset = presetController.getPresets().firstOrNull { it.name == presetName }
 
         val mustShow =
             selectedProfile == PerformanceProfile.RAGNAROK &&
-                    selectedAnimationType.needsMediaProjection &&
+                    requiresProjectionToken(selectedAnimationType) &&
                     preset?.ragnarokAccepted != true
 
         if (mustShow) {
@@ -2911,19 +2934,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleStartWithCurrentSelection() {
-        if (!checkNotificationPermission()) {
-            requestNotificationPermission()
-            return
-        }
-        // When app-profile mode is active the animation is determined by
-        // foreground-app mappings, not the UI selection.  Skip the media-
-        // projection gate – if the resolved preset needs it later, the
-        // service will show a notification prompting the user to grant it.
+        Log.i(TAG, "handleStartWithCurrentSelection: type=$selectedAnimationType")
         if (appProfileManager.isEnabled) {
+            if (!checkNotificationPermission()) {
+                requestNotificationPermission()
+                return
+            }
             serviceController.startDebounced { createLedServiceIntent() }
             return
         }
-        if (selectedAnimationType.needsMediaProjection) {
+
+        if (!checkRequiredPermissionsForSelection(selectedAnimationType)) return
+
+        if (requiresProjectionToken(selectedAnimationType)) {
             if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                 serviceController.startDebounced { createLedServiceIntent() }
             } else {
@@ -2950,7 +2973,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestScreenCapturePermission() {
+        Toast.makeText(
+            this,
+            "Android requires a capture consent popup for internal audio capture",
+            Toast.LENGTH_SHORT
+        ).show()
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+    }
+
+    private fun requiresProjectionToken(type: LedAnimationType): Boolean {
+        return type.needsMediaProjection
+    }
+
+    private fun needsAccessibilityPermission(type: LedAnimationType): Boolean {
+        return type == LedAnimationType.AMBILIGHT || type == LedAnimationType.AMBIAURORA
+    }
+
+    private fun checkRequiredPermissionsForSelection(type: LedAnimationType): Boolean {
+        Log.i(TAG, "checkRequiredPermissionsForSelection: type=$type")
+        if (!checkNotificationPermission()) {
+            Log.w(TAG, "checkRequiredPermissionsForSelection: notifications not granted")
+            requestNotificationPermission()
+            return false
+        }
+
+        if (needsAccessibilityPermission(type) && !BifrostAccessibilityService.isEnabled(this)) {
+            Log.w(TAG, "checkRequiredPermissionsForSelection: accessibility not enabled")
+            Toast.makeText(this, "Enable Accessibility for Ambilight features", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return false
+        }
+
+        if (requiresProjectionToken(type) && (mediaProjectionResultCode == null || mediaProjectionData == null)) {
+            Log.w(TAG, "checkRequiredPermissionsForSelection: media projection missing")
+            requestScreenCapturePermission()
+            return false
+        }
+
+        return true
     }
 
     private fun getAmbilightTargetDisplayId(): Int {
@@ -3001,7 +3061,7 @@ class MainActivity : AppCompatActivity() {
             val shouldIncludeMP = if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
                 mediaProjectionResultCode != null && mediaProjectionData != null
             } else {
-                selectedAnimationType.needsMediaProjection
+                requiresProjectionToken(selectedAnimationType)
             }
             if (shouldIncludeMP) {
                 putExtra("resultCode", mediaProjectionResultCode)
@@ -3127,4 +3187,7 @@ class MainActivity : AppCompatActivity() {
         return runCatching { getString(resId) }.getOrDefault(fallback)
     }
 }
+
+
+
 

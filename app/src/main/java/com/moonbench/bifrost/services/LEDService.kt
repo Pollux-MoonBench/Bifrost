@@ -12,7 +12,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.projection.MediaProjection
@@ -589,6 +588,17 @@ class LEDService : Service() {
 
         stopCurrentAnimation()
 
+        if (needsMediaProjection(animationType) && (resultCode != Activity.RESULT_OK || data == null)) {
+            Log.d(TAG, "processAnimationChange: missing MediaProjection token for $animationType, prompting user")
+            showProjectionPromptNotification()
+            pendingTransitionRunnable = Runnable {
+                isTransitioning.set(false)
+                pendingTransitionRunnable = null
+            }
+            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_START_DELAY_MS)
+            return
+        }
+
         if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
             pendingTransitionRunnable = Runnable {
                 try {
@@ -838,15 +848,6 @@ class LEDService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val stopIntent = Intent(this, LEDService::class.java).apply { action = ACTION_STOP }
-        val stopPendingIntent =
-            PendingIntent.getService(
-                this,
-                1,
-                stopIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
         val killIntent = Intent(this, LEDService::class.java).apply { action = ACTION_KILL }
         val killPendingIntent =
             PendingIntent.getService(
@@ -869,10 +870,9 @@ class LEDService : Service() {
             .setSmallIcon(R.drawable.ic_notification_small)
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher_foreground))
             .setContentIntent(mainPendingIntent)
-            .addAction(android.R.drawable.ic_delete, "Stop", stopPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kill", killPendingIntent)
             .setOnlyAlertOnce(true)
-            .setOngoing(currentPersistentNotification)
+            .setOngoing(true)
             .build()
     }
 
@@ -917,16 +917,17 @@ class LEDService : Service() {
         saturationBoost: Float
     ) {
         try {
-            Log.d(TAG, "startAnimation: type=$type, mediaProjection=${synchronized(mediaProjectionLock) { mediaProjection != null }}")
+            Log.d(TAG, "startAnimation: type=$type, needsMP=${type.needsMediaProjection}, mediaProjection=${synchronized(mediaProjectionLock) { mediaProjection != null }}, brightness=$brightness")
             val animation = createAnimation(type, color, rightColor, profile, saturationBoost)
             currentAnimation = animation
 
             if (animation == null) {
-                Log.w(TAG, "startAnimation: createAnimation returned null for type=$type")
+                Log.e(TAG, "CRITICAL: startAnimation: createAnimation returned null for type=$type")
                 activeAnimationType = null
                 return
             }
 
+            Log.d(TAG, "Animation created successfully, applying parameters (brightness=$brightness, speed=$speed, sensitivity=$sensitivity)")
             animation.setTargetBrightness(brightness)
             animation.setSpeed(speed)
             animation.setLerpStrength(smoothness)
@@ -971,6 +972,10 @@ class LEDService : Service() {
         // because the preset name matched even though MP was missing).
         appProfileManager.forceNextResolution()
         Log.d(TAG, "handleSupplyProjection: forced next resolution, waiting for user to navigate back to mapped app")
+
+        if (!appProfileManager.isEnabled) {
+            restartAnimationForCurrentState(force = true)
+        }
     }
 
     private fun showProjectionPromptNotification() {
@@ -997,8 +1002,8 @@ class LEDService : Service() {
         val notification = NotificationCompat.Builder(this, PROJECTION_PROMPT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_small)
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher_foreground))
-            .setContentTitle("Screen capture permission needed")
-            .setContentText("Tap to grant permission so Bifrost can run the assigned animation.")
+            .setContentTitle("Internal audio capture permission needed")
+            .setContentText("Tap to grant Android audio capture consent for assigned audio animations.")
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -1023,7 +1028,7 @@ class LEDService : Service() {
     }
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
-        return false
+        return type.needsMediaProjection
     }
 
     private fun createAnimation(
@@ -1033,6 +1038,7 @@ class LEDService : Service() {
         profile: PerformanceProfile,
         saturationBoost: Float
     ): LedAnimation? {
+
         return when (type) {
             LedAnimationType.AMBILIGHT -> {
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
@@ -1049,7 +1055,7 @@ class LEDService : Service() {
             LedAnimationType.AUDIO_REACTIVE -> {
                 AudioReactiveAnimation(
                     ledController,
-                    this,
+                    synchronized(mediaProjectionLock) { mediaProjection },
                     color,
                     rightColor,
                     profile
@@ -1059,7 +1065,7 @@ class LEDService : Service() {
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbiAuroraAnimation(
                     ledController,
-                    this,
+                    synchronized(mediaProjectionLock) { mediaProjection },
                     currentAmbilightDisplayId,
                     displayMetrics,
                     profile,

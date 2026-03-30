@@ -40,7 +40,7 @@
     <string name="startup_title">Welcome to Bifrost</string>
     <string name="startup_progress_notifications">Step 1/3 - Enable notifications</string>
     <string name="startup_progress_accessibility">Step 2/3 - Enable accessibility capture</string>
-    <string name="startup_progress_audio">Step 3/3 - Enable audio access</string>
+    <string name="startup_progress_audio">Step 3/3 - Enable usage access</string>
     <string name="startup_progress_done">Setup complete</string>
 
     <string name="startup_notifications_title">Allow notifications</string>
@@ -52,9 +52,9 @@
     <string name="startup_accessibility_action">Open Accessibility Settings</string>
     <string name="startup_accessibility_desc">Allows Bifrost to capture display frames for LED ambilight effects.</string>
 
-    <string name="startup_audio_title">Allow audio access</string>
-    <string name="startup_audio_body">Audio-reactive mode uses microphone input to drive LED intensity.</string>
-    <string name="startup_audio_action">Allow microphone</string>
+    <string name="startup_audio_title">Allow usage access</string>
+    <string name="startup_audio_body">Needed for App Profile mode so Bifrost can detect foreground apps and auto-switch presets.</string>
+    <string name="startup_audio_action">Open usage access settings</string>
 
     <string name="startup_done_title">You are ready</string>
     <string name="startup_done_body">You can now start Bifrost and keep it running in background until you press Stop or Kill.</string>

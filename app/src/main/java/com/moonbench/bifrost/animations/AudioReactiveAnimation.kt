@@ -1,17 +1,19 @@
 package com.moonbench.bifrost.animations
 
-import android.content.Context
 import android.graphics.Color
+import android.media.projection.MediaProjection
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
+import com.moonbench.bifrost.tools.AudioAnalyzer
 import com.moonbench.bifrost.tools.LedController
-import com.moonbench.bifrost.tools.MicrophoneAudioAnalyzer
 import com.moonbench.bifrost.tools.PerformanceProfile
 import kotlin.math.roundToInt
 
 class AudioReactiveAnimation(
     ledController: LedController,
-    private val context: Context,
+    private val mediaProjection: MediaProjection?,
     private val baseColor: Int,
     private val baseRightColor: Int = baseColor,
     private val profile: PerformanceProfile
@@ -20,7 +22,11 @@ class AudioReactiveAnimation(
     override val type: LedAnimationType = LedAnimationType.AUDIO_REACTIVE
     override val needsColorSelection: Boolean = true
 
-    private var audioAnalyzer: MicrophoneAudioAnalyzer? = null
+    companion object {
+        private const val TAG = "AudioReactiveAnimation"
+    }
+
+    private var audioAnalyzer: AudioAnalyzer? = null
 
     private var targetBrightness: Int = 255
     private var currentBrightness: Int = 0
@@ -84,7 +90,11 @@ class AudioReactiveAnimation(
     }
 
     override fun start() {
-        if (isRunning) return
+        if (isRunning) {
+            Log.w(TAG, "start() called but already running")
+            return
+        }
+        Log.d(TAG, "start() called - initializing Audio Reactive animation")
         isRunning = true
 
         updateThread = HandlerThread("AudioReactiveUpdate").apply {
@@ -94,15 +104,29 @@ class AudioReactiveAnimation(
         updateHandler = Handler(updateThread!!.looper)
         updateHandler?.post(ledUpdateRunnable)
 
-        audioAnalyzer = MicrophoneAudioAnalyzer(context, profile) { intensity ->
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || mediaProjection == null) {
+            Log.w(TAG, "Internal audio capture unavailable: missing MediaProjection or API < 29")
+            pendingIntensity = 0f
+            hasAudioUpdate = true
+            return
+        }
+
+        audioAnalyzer = AudioAnalyzer(mediaProjection, profile) { intensity ->
             pendingIntensity = intensity
             hasAudioUpdate = true
+            Log.v(TAG, "Audio intensity received: ${"%.3f".format(intensity)}")
         }
+        Log.d(TAG, "AudioAnalyzer created, starting internal audio capture")
         audioAnalyzer?.start()
+        Log.d(TAG, "Audio Reactive animation started successfully")
     }
 
     override fun stop() {
-        if (!isRunning) return
+        if (!isRunning) {
+            Log.w(TAG, "stop() called but not running")
+            return
+        }
+        Log.d(TAG, "stop() called - stopping Audio Reactive animation")
         isRunning = false
         hasAudioUpdate = false
 
@@ -117,6 +141,7 @@ class AudioReactiveAnimation(
 
         currentBrightness = 0
         applyLeds()
+        Log.d(TAG, "Audio Reactive animation stopped")
     }
 
     private fun riseLerpFactor(): Float {

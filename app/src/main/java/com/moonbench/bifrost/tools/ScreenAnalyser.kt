@@ -42,7 +42,7 @@ private const val BRIGHTNESS_BLUE_COEFF = 0.114
 
 private const val HUE_CYCLE = 6f
 private const val HUE_STEP = 60f
-private const val TAG = "ScreenAnalyzer"
+private const val TAG = "BIBI.Screen"
 
 data class ScreenColors(
     val leftColor: Int = Color.BLACK,
@@ -74,6 +74,8 @@ class ScreenAnalyzer(
     private var isRunning: Boolean = false
     private var captureInFlight: Boolean = false
     private var screenshotCapabilityBlocked: Boolean = false
+    private var blockedUntilElapsedRealtime: Long = 0L
+    private var screenshotFailureCount: Int = 0
 
     fun start() {
         if (isRunning) return
@@ -95,6 +97,9 @@ class ScreenAnalyzer(
 
         handlerThread = HandlerThread("ScreenCapture").apply { start() }
         handler = Handler(handlerThread!!.looper)
+        screenshotCapabilityBlocked = false
+        blockedUntilElapsedRealtime = 0L
+        screenshotFailureCount = 0
         scheduleNextCapture(0L)
     }
 
@@ -106,6 +111,8 @@ class ScreenAnalyzer(
         handler = null
         captureInFlight = false
         screenshotCapabilityBlocked = false
+        blockedUntilElapsedRealtime = 0L
+        screenshotFailureCount = 0
         lastEmittedColors = null
     }
 
@@ -137,14 +144,18 @@ class ScreenAnalyzer(
         // Double-check that service is actually enabled in system settings
         if (!BifrostAccessibilityService.isEnabled(service)) {
             Log.w(TAG, "captureFrame: AccessibilityService not enabled in system settings")
-            screenshotCapabilityBlocked = true
+            markScreenshotBlocked("accessibility-disabled", 2000L)
             scheduleNextCapture(2000L)
             return
         }
 
         if (screenshotCapabilityBlocked) {
-            scheduleNextCapture(1000L)
-            return
+            if (now < blockedUntilElapsedRealtime) {
+                scheduleNextCapture((blockedUntilElapsedRealtime - now).coerceAtLeast(250L))
+                return
+            }
+            Log.i(TAG, "captureFrame: retrying screenshot after temporary block")
+            screenshotCapabilityBlocked = false
         }
 
         captureInFlight = true
@@ -155,6 +166,9 @@ class ScreenAnalyzer(
                 service.mainExecutor,
                 object : AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                        screenshotFailureCount = 0
+                        screenshotCapabilityBlocked = false
+                        blockedUntilElapsedRealtime = 0L
                         val hwBitmap = Bitmap.wrapHardwareBuffer(
                             screenshot.hardwareBuffer,
                             screenshot.colorSpace
@@ -186,14 +200,17 @@ class ScreenAnalyzer(
 
                     override fun onFailure(errorCode: Int) {
                         Log.w(TAG, "captureFrame: onFailure errorCode=$errorCode")
+                        screenshotFailureCount = (screenshotFailureCount + 1).coerceAtMost(10)
+                        val retryDelay = (250L * screenshotFailureCount).coerceAtMost(2000L)
+                        markScreenshotBlocked("takeScreenshot-failure-$errorCode", retryDelay)
                         captureInFlight = false
-                        scheduleNextCapture(250L)
+                        scheduleNextCapture(retryDelay)
                     }
                 }
             )
         } catch (securityException: SecurityException) {
             Log.e(TAG, "captureFrame: SecurityException - accessibility screenshot capability unavailable or service not properly enabled", securityException)
-            screenshotCapabilityBlocked = true
+            markScreenshotBlocked("security-exception", 2000L)
             captureInFlight = false
             onColorsAnalyzed(ScreenColors(Color.BLACK, Color.BLACK))
             scheduleNextCapture(2000L)
@@ -202,6 +219,12 @@ class ScreenAnalyzer(
             captureInFlight = false
             scheduleNextCapture(500L)
         }
+    }
+
+    private fun markScreenshotBlocked(reason: String, retryDelayMs: Long) {
+        screenshotCapabilityBlocked = true
+        blockedUntilElapsedRealtime = SystemClock.elapsedRealtime() + retryDelayMs
+        Log.w(TAG, "markScreenshotBlocked: reason=$reason retryInMs=$retryDelayMs")
     }
 
     private fun processBitmap(bitmap: Bitmap) {
