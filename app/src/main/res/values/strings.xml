@@ -60,5 +60,6 @@
     <string name="startup_done_body">You can now start Bifrost and keep it running in background until you press Stop or Kill.</string>
     <string name="startup_done_action">Continue</string>
     <string name="accessibility_service_description">Allows Bifrost to capture display frames for LED effects.</string>
+    <string name="live_wallpaper_description">Video live wallpaper.</string>
 
 </resources>

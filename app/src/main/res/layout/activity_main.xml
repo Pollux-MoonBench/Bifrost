@@ -86,6 +86,24 @@
                         android:textStyle="bold"
                         android:letterSpacing="0.05" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/launchLiveWallpaperButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginEnd="8dp"
+                        android:backgroundTint="@color/bifrost_surface"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:text="LIVE WP"
+                        android:textColor="@color/bifrost_text"
+                        android:textSize="10sp"
+                        app:cornerRadius="9dp"
+                        app:strokeColor="@color/bifrost_accent"
+                        app:strokeWidth="1dp" />
+
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/serviceToggle"
                         android:layout_width="wrap_content"
