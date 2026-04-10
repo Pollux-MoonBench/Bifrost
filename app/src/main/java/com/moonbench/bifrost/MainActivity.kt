@@ -8,6 +8,8 @@ import android.app.ActivityOptions
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.WallpaperManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -40,6 +42,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -68,7 +71,9 @@ import com.moonbench.bifrost.services.AppProfileManager
 import com.moonbench.bifrost.services.BifrostAccessibilityService
 import com.moonbench.bifrost.services.HeimdallStartupManager
 import com.moonbench.bifrost.services.LEDService
+import com.moonbench.bifrost.services.LiveWallpaperSettingsManager
 import com.moonbench.bifrost.services.ServiceController
+import com.moonbench.bifrost.services.VideoLiveWallpaperService
 import com.moonbench.bifrost.tools.DeviceInfo
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.ui.AnimatedRainbowDrawable
@@ -87,7 +92,13 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    private enum class SettingsTab {
+        HEIMDALL,
+        LIVE_WALLPAPER
+    }
+
     private lateinit var serviceToggle: SwitchMaterial
+    private lateinit var launchLiveWallpaperButton: MaterialButton
     private lateinit var autoStartupSwitch: SwitchMaterial
     private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
     private lateinit var persistentNotificationSwitch: SwitchMaterial
@@ -101,6 +112,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var customizePresetArtworkButton: MaterialButton
     private lateinit var exportPresetsButton: MaterialButton
     private lateinit var importPresetsButton: MaterialButton
+    private lateinit var heimdallTabButton: MaterialButton
+    private lateinit var liveWallpaperTabButton: MaterialButton
+    private lateinit var heimdallSettingsScroll: ScrollView
+    private lateinit var liveWallpaperSettingsScroll: ScrollView
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
     private lateinit var batteryLowColorButton: MaterialButton
@@ -143,6 +158,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var systemStatusContainer: View
     private lateinit var bifrostLogoView: ImageView
     private lateinit var bifrostTitleText: TextView
+    private lateinit var liveWallpaperAutoStartSwitch: SwitchMaterial
+    private lateinit var liveWallpaperVideoPathText: TextView
+    private lateinit var liveWallpaperPickVideoButton: MaterialButton
+    private lateinit var liveWallpaperApplyButton: MaterialButton
+    private lateinit var liveWallpaperPerformanceSpinner: Spinner
+    private lateinit var liveWallpaperFpsSeekBar: SeekBar
+    private lateinit var liveWallpaperFpsValueText: TextView
     private var thorLaunchBottomSwitch: SwitchMaterial? = null
     private var thorAmbilightBottomSwitch: SwitchMaterial? = null
 
@@ -235,6 +257,7 @@ class MainActivity : AppCompatActivity() {
     private var isCoverFlowTouching: Boolean = false
     private var lastCoverFlowScrollXForSnap: Int = 0
     private var isSettingsOverlayAnimating: Boolean = false
+    private var selectedSettingsTab: SettingsTab = SettingsTab.HEIMDALL
     private var isSyncingAppProfileSwitches: Boolean = false
     private var isSyncingAppProfileDefaultSwitch: Boolean = false
     private var pendingPresetArtworkIndex: Int? = null
@@ -367,6 +390,20 @@ class MainActivity : AppCompatActivity() {
             importPresetBundle(uri)
         }
 
+    private val liveWallpaperVideoPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+            runCatching {
+                contentResolver.takePersistableUriPermission(uri, flags)
+            }
+
+            LiveWallpaperSettingsManager.setVideoUri(prefs, uri)
+            refreshLiveWallpaperVideoSummary()
+            Toast.makeText(this, "Live wallpaper video updated", Toast.LENGTH_SHORT).show()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -428,6 +465,7 @@ class MainActivity : AppCompatActivity() {
         activePresetProfileText = findViewById(R.id.activePresetProfileText)
 
         serviceToggle = findViewById(R.id.serviceToggle)
+        launchLiveWallpaperButton = findViewById(R.id.launchLiveWallpaperButton)
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
         pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
         persistentNotificationSwitch = findViewById(R.id.persistentNotificationSwitch)
@@ -440,6 +478,10 @@ class MainActivity : AppCompatActivity() {
         customizePresetArtworkButton = findViewById(R.id.customizePresetArtworkButton)
         exportPresetsButton = findViewById(R.id.exportPresetsButton)
         importPresetsButton = findViewById(R.id.importPresetsButton)
+        heimdallTabButton = findViewById(R.id.heimdallTabButton)
+        liveWallpaperTabButton = findViewById(R.id.liveWallpaperTabButton)
+        heimdallSettingsScroll = findViewById(R.id.heimdallSettingsScroll)
+        liveWallpaperSettingsScroll = findViewById(R.id.liveWallpaperSettingsScroll)
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
         batteryLowColorButton = findViewById(R.id.batteryLowColorButton)
@@ -477,6 +519,13 @@ class MainActivity : AppCompatActivity() {
         systemStatusContainer = findViewById(R.id.systemStatusContainer)
         bifrostLogoView = findViewById(R.id.homeBifrostLogoView)
         bifrostTitleText = findViewById(R.id.homeBifrostTitleText)
+        liveWallpaperAutoStartSwitch = findViewById(R.id.liveWallpaperAutoStartSwitch)
+        liveWallpaperVideoPathText = findViewById(R.id.liveWallpaperVideoPathText)
+        liveWallpaperPickVideoButton = findViewById(R.id.liveWallpaperPickVideoButton)
+        liveWallpaperApplyButton = findViewById(R.id.liveWallpaperApplyButton)
+        liveWallpaperPerformanceSpinner = findViewById(R.id.liveWallpaperPerformanceSpinner)
+        liveWallpaperFpsSeekBar = findViewById(R.id.liveWallpaperFpsSeekBar)
+        liveWallpaperFpsValueText = findViewById(R.id.liveWallpaperFpsValueText)
 
         serviceController = ServiceController(
             activity = this,
@@ -490,6 +539,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupHomeSurface()
+        setupSettingsTabs()
         setupBackNavigationHandler()
         setupAnimationSpinner()
         setupProfileSpinner()
@@ -512,6 +562,7 @@ class MainActivity : AppCompatActivity() {
         setupPersistentNotificationSwitch()
         setupThorScreenPreference()
         setupPresetFeature()
+        setupLiveWallpaperFeature()
         updateParameterVisibility()
         enableRainbowBackground(LEDService.isRunning)
         showFirstLaunchAlertIfNeeded()
@@ -534,6 +585,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         maybeAutoStartHeimdallOnLaunch()
+        maybeAutoStartLiveWallpaperOnLaunch()
 
         isAppInitialized = true
 
@@ -563,6 +615,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupHomeSurface() {
         homeSettingsButton.setOnClickListener { openSettingsOverlay() }
         closeSettingsButton.setOnClickListener { requestCloseSettingsOverlay() }
+        launchLiveWallpaperButton.setOnClickListener { openLiveWallpaperChooser(requireVideo = true) }
         customizePresetArtworkButton.setOnClickListener {
             openSelectedPresetArtworkEditor(it)
         }
@@ -591,6 +644,146 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun setupSettingsTabs() {
+        heimdallTabButton.setOnClickListener { switchSettingsTab(SettingsTab.HEIMDALL) }
+        liveWallpaperTabButton.setOnClickListener { switchSettingsTab(SettingsTab.LIVE_WALLPAPER) }
+        switchSettingsTab(selectedSettingsTab)
+    }
+
+    private fun switchSettingsTab(tab: SettingsTab) {
+        selectedSettingsTab = tab
+        val isHeimdall = tab == SettingsTab.HEIMDALL
+
+        heimdallSettingsScroll.visibility = if (isHeimdall) View.VISIBLE else View.GONE
+        liveWallpaperSettingsScroll.visibility = if (isHeimdall) View.GONE else View.VISIBLE
+
+        val activeColor = ContextCompat.getColor(this, R.color.bifrost_accent)
+        val activeStroke = ContextCompat.getColor(this, R.color.bifrost_accent_light)
+        val inactiveColor = ContextCompat.getColor(this, R.color.bifrost_surface)
+        val inactiveStroke = ContextCompat.getColor(this, R.color.bifrost_accent)
+
+        heimdallTabButton.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            if (isHeimdall) activeColor else inactiveColor
+        )
+        heimdallTabButton.strokeColor = android.content.res.ColorStateList.valueOf(
+            if (isHeimdall) activeStroke else inactiveStroke
+        )
+
+        liveWallpaperTabButton.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            if (isHeimdall) inactiveColor else activeColor
+        )
+        liveWallpaperTabButton.strokeColor = android.content.res.ColorStateList.valueOf(
+            if (isHeimdall) inactiveStroke else activeStroke
+        )
+    }
+
+    private fun setupLiveWallpaperFeature() {
+        liveWallpaperAutoStartSwitch.isChecked = LiveWallpaperSettingsManager.isAutoStartEnabled(prefs)
+        liveWallpaperAutoStartSwitch.setOnCheckedChangeListener { _, isChecked ->
+            LiveWallpaperSettingsManager.setAutoStartEnabled(prefs, isChecked)
+        }
+
+        liveWallpaperPickVideoButton.setOnClickListener {
+            liveWallpaperVideoPickerLauncher.launch(arrayOf("video/*"))
+        }
+
+        liveWallpaperApplyButton.setOnClickListener {
+            openLiveWallpaperChooser(requireVideo = true)
+        }
+
+        val modes = LiveWallpaperSettingsManager.PerformanceMode.values().toList()
+        val labels = modes.map { mode ->
+            mode.name.lowercase().replaceFirstChar { it.uppercase() }
+        }
+        val adapter = ArrayAdapter(this, R.layout.item_spinner_bifrost, labels)
+        adapter.setDropDownViewResource(R.layout.item_spinner_dropdown_bifrost)
+        liveWallpaperPerformanceSpinner.adapter = adapter
+
+        val selectedMode = LiveWallpaperSettingsManager.getPerformanceMode(prefs)
+        liveWallpaperPerformanceSpinner.setSelection(modes.indexOf(selectedMode).coerceAtLeast(0), false)
+        liveWallpaperPerformanceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                val mode = modes.getOrNull(position) ?: return
+                LiveWallpaperSettingsManager.setPerformanceMode(prefs, mode)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        liveWallpaperFpsSeekBar.max = 105
+        val currentFps = LiveWallpaperSettingsManager.getTargetFps(prefs)
+        liveWallpaperFpsSeekBar.progress = currentFps - 15
+        liveWallpaperFpsValueText.text = currentFps.toString()
+        liveWallpaperFpsSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val fps = (progress + 15).coerceIn(15, 120)
+                liveWallpaperFpsValueText.text = fps.toString()
+                if (fromUser) {
+                    LiveWallpaperSettingsManager.setTargetFps(prefs, fps)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        refreshLiveWallpaperVideoSummary()
+    }
+
+    private fun refreshLiveWallpaperVideoSummary() {
+        val uri = LiveWallpaperSettingsManager.getVideoUri(prefs)
+        liveWallpaperVideoPathText.text = if (uri == null) {
+            "No video selected"
+        } else {
+            uri.toString()
+        }
+    }
+
+    private fun openLiveWallpaperChooser(requireVideo: Boolean) {
+        val uri = LiveWallpaperSettingsManager.getVideoUri(prefs)
+        if (requireVideo && uri == null) {
+            Toast.makeText(this, "Pick a video first", Toast.LENGTH_SHORT).show()
+            switchSettingsTab(SettingsTab.LIVE_WALLPAPER)
+            openSettingsOverlay()
+            return
+        }
+
+        val component = ComponentName(this, VideoLiveWallpaperService::class.java)
+        val targetedIntent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+            putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, component)
+        }
+
+        val fallbackIntent = Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER)
+        val intentToLaunch = if (targetedIntent.resolveActivity(packageManager) != null) {
+            targetedIntent
+        } else {
+            fallbackIntent
+        }
+
+        runCatching {
+            startActivity(intentToLaunch)
+        }.onFailure {
+            Toast.makeText(this, "Unable to open wallpaper chooser", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun isBifrostLiveWallpaperActive(): Boolean {
+        val info = WallpaperManager.getInstance(this).wallpaperInfo ?: return false
+        return info.packageName == packageName && info.serviceName == VideoLiveWallpaperService::class.java.name
+    }
+
+    private fun maybeAutoStartLiveWallpaperOnLaunch() {
+        if (!LiveWallpaperSettingsManager.isAutoStartEnabled(prefs)) return
+        if (isBifrostLiveWallpaperActive()) return
+        if (LiveWallpaperSettingsManager.getVideoUri(prefs) == null) return
+        openLiveWallpaperChooser(requireVideo = false)
     }
 
     private fun cancelPendingCoverFlowSnap() {
@@ -711,6 +904,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestCloseSettingsOverlay() {
+        if (selectedSettingsTab != SettingsTab.HEIMDALL) {
+            closeSettingsOverlay()
+            return
+        }
         if (!::presetController.isInitialized || !presetController.hasUnsavedChangesForSelectedPreset()) {
             closeSettingsOverlay()
             return
@@ -2352,6 +2549,10 @@ class MainActivity : AppCompatActivity() {
             .setContentIntent(pendingIntent)
             .build()
 
+        val hasPostNotificationsPermission =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!hasPostNotificationsPermission) return
         NotificationManagerCompat.from(this).notify(AUTOSTART_PERMISSION_NOTIFICATION_ID, notification)
     }
 
