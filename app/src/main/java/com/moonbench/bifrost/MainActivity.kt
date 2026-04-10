@@ -98,7 +98,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var serviceToggle: SwitchMaterial
-    private lateinit var launchLiveWallpaperButton: MaterialButton
     private lateinit var autoStartupSwitch: SwitchMaterial
     private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
     private lateinit var persistentNotificationSwitch: SwitchMaterial
@@ -158,7 +157,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var systemStatusContainer: View
     private lateinit var bifrostLogoView: ImageView
     private lateinit var bifrostTitleText: TextView
-    private lateinit var liveWallpaperAutoStartSwitch: SwitchMaterial
     private lateinit var liveWallpaperVideoPathText: TextView
     private lateinit var liveWallpaperPickVideoButton: MaterialButton
     private lateinit var liveWallpaperApplyButton: MaterialButton
@@ -465,7 +463,6 @@ class MainActivity : AppCompatActivity() {
         activePresetProfileText = findViewById(R.id.activePresetProfileText)
 
         serviceToggle = findViewById(R.id.serviceToggle)
-        launchLiveWallpaperButton = findViewById(R.id.launchLiveWallpaperButton)
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
         pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
         persistentNotificationSwitch = findViewById(R.id.persistentNotificationSwitch)
@@ -519,7 +516,6 @@ class MainActivity : AppCompatActivity() {
         systemStatusContainer = findViewById(R.id.systemStatusContainer)
         bifrostLogoView = findViewById(R.id.homeBifrostLogoView)
         bifrostTitleText = findViewById(R.id.homeBifrostTitleText)
-        liveWallpaperAutoStartSwitch = findViewById(R.id.liveWallpaperAutoStartSwitch)
         liveWallpaperVideoPathText = findViewById(R.id.liveWallpaperVideoPathText)
         liveWallpaperPickVideoButton = findViewById(R.id.liveWallpaperPickVideoButton)
         liveWallpaperApplyButton = findViewById(R.id.liveWallpaperApplyButton)
@@ -585,7 +581,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         maybeAutoStartHeimdallOnLaunch()
-        maybeAutoStartLiveWallpaperOnLaunch()
 
         isAppInitialized = true
 
@@ -615,7 +610,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupHomeSurface() {
         homeSettingsButton.setOnClickListener { openSettingsOverlay() }
         closeSettingsButton.setOnClickListener { requestCloseSettingsOverlay() }
-        launchLiveWallpaperButton.setOnClickListener { openLiveWallpaperChooser(requireVideo = true) }
         customizePresetArtworkButton.setOnClickListener {
             openSelectedPresetArtworkEditor(it)
         }
@@ -680,11 +674,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupLiveWallpaperFeature() {
-        liveWallpaperAutoStartSwitch.isChecked = LiveWallpaperSettingsManager.isAutoStartEnabled(prefs)
-        liveWallpaperAutoStartSwitch.setOnCheckedChangeListener { _, isChecked ->
-            LiveWallpaperSettingsManager.setAutoStartEnabled(prefs, isChecked)
-        }
-
         liveWallpaperPickVideoButton.setOnClickListener {
             liveWallpaperVideoPickerLauncher.launch(arrayOf("video/*"))
         }
@@ -779,12 +768,6 @@ class MainActivity : AppCompatActivity() {
         return info.packageName == packageName && info.serviceName == VideoLiveWallpaperService::class.java.name
     }
 
-    private fun maybeAutoStartLiveWallpaperOnLaunch() {
-        if (!LiveWallpaperSettingsManager.isAutoStartEnabled(prefs)) return
-        if (isBifrostLiveWallpaperActive()) return
-        if (LiveWallpaperSettingsManager.getVideoUri(prefs) == null) return
-        openLiveWallpaperChooser(requireVideo = false)
-    }
 
     private fun cancelPendingCoverFlowSnap() {
         coverFlowSnapRunnable?.let(mainHandler::removeCallbacks)
