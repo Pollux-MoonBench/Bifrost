@@ -116,6 +116,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var saturationBoostSeekBar: SeekBar
     private lateinit var customSamplingSwitch: SwitchMaterial
     private lateinit var singleColorSwitch: SwitchMaterial
+    private lateinit var ambilightUseMediaProjectionSwitch: SwitchMaterial
     private lateinit var breatheWhenChargingSwitch: SwitchMaterial
     private lateinit var chargingSpeedIndicatorSwitch: SwitchMaterial
     private lateinit var flashWhenReadySwitch: SwitchMaterial
@@ -171,6 +172,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_FIRST_LAUNCH_ALERT_SHOWN = "first_launch_alert_shown"
         private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
+        private const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
         private const val PREF_STARTUP_GUIDE_DONE = "startup_guide_done"
@@ -453,6 +455,7 @@ class MainActivity : AppCompatActivity() {
         saturationBoostSeekBar = findViewById(R.id.saturationBoostSeekBar)
         customSamplingSwitch = findViewById(R.id.customSamplingSwitch)
         singleColorSwitch = findViewById(R.id.singleColorSwitch)
+        ambilightUseMediaProjectionSwitch = findViewById(R.id.ambilightUseMediaProjectionSwitch)
         breatheWhenChargingSwitch = findViewById(R.id.breatheWhenChargingSwitch)
         chargingSpeedIndicatorSwitch = findViewById(R.id.chargingSpeedIndicatorSwitch)
         flashWhenReadySwitch = findViewById(R.id.flashWhenReadySwitch)
@@ -498,6 +501,7 @@ class MainActivity : AppCompatActivity() {
         setupSaturationBoostSeekBar()
         setupCustomSamplingSwitch()
         setupSingleColorSwitch()
+        setupAmbilightCaptureSwitch()
         setupBreatheWhenChargingSwitch()
         setupChargingSpeedIndicatorSwitch()
         setupFlashWhenReadySwitch()
@@ -2151,6 +2155,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupAmbilightCaptureSwitch() {
+        ambilightUseMediaProjectionSwitch.isChecked = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        ambilightUseMediaProjectionSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, isChecked).apply()
+            if (!LEDService.isRunning || serviceController.isServiceTransitioning) return@setOnCheckedChangeListener
+            if (isChecked) {
+                if (mediaProjectionResultCode != null && mediaProjectionData != null) {
+                    // Already have a token — restart with it (requiresProjectionToken now returns true so it's included)
+                    serviceController.restartDebounced { createLedServiceIntent() }
+                } else {
+                    // No token yet — request permission. screenCaptureLauncher will call
+                    // startDebounced { createLedServiceIntent() } which now includes the token.
+                    handleMediaProjectionRequirement()
+                }
+            } else {
+                // Switching back to accessibility mode — restart without MediaProjection
+                serviceController.restartDebounced { createLedServiceIntent() }
+            }
+        }
+    }
+
     private fun setupBreatheWhenChargingSwitch() {
         breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
         breatheWhenChargingSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -2855,6 +2880,10 @@ class MainActivity : AppCompatActivity() {
             singleColorSwitch.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
             bothSticksSameColor.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
 
+            val needsAmbilightCapture = selectedAnimationType == LedAnimationType.AMBILIGHT
+            val ambilightCaptureRow = findViewById<View>(R.id.ambilightCaptureRow)
+            ambilightCaptureRow?.visibility = if (needsAmbilightCapture) View.VISIBLE else View.GONE
+
             breatheWhenChargingRow?.visibility = if (needsBreatheWhenCharging) View.VISIBLE else View.GONE
             chargingSpeedIndicatorRow?.visibility = if (needsChargingSpeedIndicator) View.VISIBLE else View.GONE
             flashWhenReadyRow?.visibility = if (needsFlashWhenReady) View.VISIBLE else View.GONE
@@ -2982,11 +3011,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requiresProjectionToken(type: LedAnimationType): Boolean {
+        if (type == LedAnimationType.AMBILIGHT) {
+            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        }
         return type.needsMediaProjection
     }
 
     private fun needsAccessibilityPermission(type: LedAnimationType): Boolean {
-        return type == LedAnimationType.AMBILIGHT || type == LedAnimationType.AMBIAURORA
+        if (type == LedAnimationType.AMBILIGHT) {
+            return !prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        }
+        return type == LedAnimationType.AMBIAURORA
     }
 
     private fun checkRequiredPermissionsForSelection(type: LedAnimationType): Boolean {

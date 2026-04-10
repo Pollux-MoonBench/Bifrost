@@ -1,15 +1,18 @@
 package com.moonbench.bifrost.animations
 
 import android.graphics.Color
+import android.media.projection.MediaProjection
+import android.os.Handler
+import android.os.HandlerThread
 import android.util.DisplayMetrics
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.tools.ScreenAnalyzer
-import com.moonbench.bifrost.tools.ScreenColors
 import kotlin.math.roundToInt
 
 class AmbilightAnimation(
     ledController: LedController,
+    private val mediaProjection: MediaProjection? = null,
     private val displayId: Int,
     private val displayMetrics: DisplayMetrics,
     private val profile: PerformanceProfile,
@@ -22,29 +25,40 @@ class AmbilightAnimation(
     override val needsColorSelection: Boolean = false
 
     private var screenAnalyzer: ScreenAnalyzer? = null
+    private var updateThread: HandlerThread? = null
+    private var updateHandler: Handler? = null
+
+    @Volatile private var isRunning = false
+    @Volatile private var targetLeftColor = Color.BLACK
+    @Volatile private var targetRightColor = Color.BLACK
 
     private var currentLeftColor = Color.BLACK
     private var currentRightColor = Color.BLACK
+    private var lastAppliedLeft = Color.TRANSPARENT
+    private var lastAppliedRight = Color.TRANSPARENT
 
     private var targetBrightness: Int = 255
     private var currentBrightness: Int = 255
     private var response: Float = 0.5f
     private var saturationBoost: Float = initialSaturationBoost
-    private var lastLedUpdateAt = 0L
-    private var lastLeftLedColor = Color.TRANSPARENT
-    private var lastRightLedColor = Color.TRANSPARENT
 
-    override fun setTargetBrightness(brightness: Int) {
-        targetBrightness = brightness.coerceIn(0, 255)
+    private val ledUpdateRunnable = object : Runnable {
+        override fun run() {
+            if (!isRunning) return
+
+            currentLeftColor = lerpColor(currentLeftColor, targetLeftColor, colorLerpFactor())
+            currentRightColor = lerpColor(currentRightColor, targetRightColor, colorLerpFactor())
+            currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, brightnessLerpFactor())
+
+            applyLeds()
+
+            updateHandler?.postDelayed(this, 16L)
+        }
     }
 
-    override fun setLerpStrength(strength: Float) {
-        response = strength.coerceIn(0f, 1f)
-    }
-
-    override fun setSpeed(speed: Float) {
-        response = speed.coerceIn(0f, 1f)
-    }
+    override fun setTargetBrightness(brightness: Int) { targetBrightness = brightness.coerceIn(0, 255) }
+    override fun setLerpStrength(strength: Float) { response = strength.coerceIn(0f, 1f) }
+    override fun setSpeed(speed: Float) { response = speed.coerceIn(0f, 1f) }
 
     override fun setSaturationBoost(boost: Float) {
         saturationBoost = boost.coerceIn(0f, 1f)
@@ -52,22 +66,30 @@ class AmbilightAnimation(
     }
 
     override fun start() {
+        isRunning = true
+
+        updateThread = HandlerThread("AmbilightUpdate").apply { start() }
+        updateHandler = Handler(updateThread!!.looper)
+        updateHandler?.post(ledUpdateRunnable)
+
         screenAnalyzer = ScreenAnalyzer(
-            displayId,
-            displayMetrics,
-            profile,
-            useCustomSampling,
-            useSingleColor,
-            saturationBoost
+            displayId, displayMetrics, profile, useCustomSampling, useSingleColor, saturationBoost,
+            mediaProjection = mediaProjection
         ) { colors ->
-            updateColors(colors)
+            targetLeftColor = if (isColorBlack(colors.leftColor)) Color.BLACK else colors.leftColor
+            targetRightColor = if (isColorBlack(colors.rightColor)) Color.BLACK else colors.rightColor
         }
         screenAnalyzer?.start()
     }
 
     override fun stop() {
+        isRunning = false
+        updateHandler?.removeCallbacks(ledUpdateRunnable)
         screenAnalyzer?.stop()
         screenAnalyzer = null
+        updateThread?.quitSafely()
+        updateThread = null
+        updateHandler = null
     }
 
     private fun colorLerpFactor(): Float {
@@ -82,74 +104,23 @@ class AmbilightAnimation(
         return min + (max - min) * response
     }
 
-    private fun updateColors(colors: ScreenColors) {
-        val now = System.currentTimeMillis()
-        if (now - lastLedUpdateAt < 16L) return
+    private fun applyLeds() {
+        val scale = applyGamma(currentBrightness) / 255f
 
-        val leftTarget = if (isColorBlack(colors.leftColor)) {
-            Color.BLACK
-        } else {
-            colors.leftColor
-        }
+        val lr = (Color.red(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
+        val lg = (Color.green(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
+        val lb = (Color.blue(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
+        val rr = (Color.red(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
+        val rg = (Color.green(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
+        val rb = (Color.blue(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
 
-        val rightTarget = if (isColorBlack(colors.rightColor)) {
-            Color.BLACK
-        } else {
-            colors.rightColor
-        }
+        val newLeft = Color.rgb(lr, lg, lb)
+        val newRight = Color.rgb(rr, rg, rb)
+        if (newLeft == lastAppliedLeft && newRight == lastAppliedRight) return
+        lastAppliedLeft = newLeft
+        lastAppliedRight = newRight
 
-        currentLeftColor = if (isColorBlack(leftTarget)) {
-            Color.BLACK
-        } else {
-            lerpColor(currentLeftColor, leftTarget, colorLerpFactor())
-        }
-
-        currentRightColor = if (isColorBlack(rightTarget)) {
-            Color.BLACK
-        } else {
-            lerpColor(currentRightColor, rightTarget, colorLerpFactor())
-        }
-
-        currentBrightness = lerpBrightnessInt(currentBrightness, targetBrightness, brightnessLerpFactor())
-
-        val gammaCorrectedBrightness = applyGamma(currentBrightness)
-        val scale = gammaCorrectedBrightness / 255f
-
-        val leftRed = (Color.red(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
-        val leftGreen = (Color.green(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
-        val leftBlue = (Color.blue(currentLeftColor) * scale).roundToInt().coerceIn(0, 255)
-
-        val rightRed = (Color.red(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
-        val rightGreen = (Color.green(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
-        val rightBlue = (Color.blue(currentRightColor) * scale).roundToInt().coerceIn(0, 255)
-
-        val newLeftLedColor = Color.rgb(leftRed, leftGreen, leftBlue)
-        val newRightLedColor = Color.rgb(rightRed, rightGreen, rightBlue)
-        if (newLeftLedColor == lastLeftLedColor && newRightLedColor == lastRightLedColor) {
-            return
-        }
-        lastLeftLedColor = newLeftLedColor
-        lastRightLedColor = newRightLedColor
-        lastLedUpdateAt = now
-
-        ledController.setLedColor(
-            leftRed,
-            leftGreen,
-            leftBlue,
-            leftTop = true,
-            leftBottom = true,
-            rightTop = false,
-            rightBottom = false
-        )
-
-        ledController.setLedColor(
-            rightRed,
-            rightGreen,
-            rightBlue,
-            leftTop = false,
-            leftBottom = false,
-            rightTop = true,
-            rightBottom = true
-        )
+        ledController.setLedColor(lr, lg, lb, leftTop = true, leftBottom = true, rightTop = false, rightBottom = false)
+        ledController.setLedColor(rr, rg, rb, leftTop = false, leftBottom = false, rightTop = true, rightBottom = true)
     }
 }

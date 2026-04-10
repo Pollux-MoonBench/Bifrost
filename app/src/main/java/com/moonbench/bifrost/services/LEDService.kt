@@ -56,6 +56,7 @@ class LEDService : Service() {
     companion object {
         private const val TAG = "BIBI"
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
+        const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = "ambilight_use_media_projection"
         private const val ACTIVITY_CHECK_INTERVAL_MS = 2000L
         private const val ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS = 700L
         private const val TRANSITION_RETRY_DELAY_MS = 200L
@@ -610,6 +611,7 @@ class LEDService : Service() {
                                 if (isRunning && !isStopping.get()) {
                                     replaceMediaProjection(resultCode, data)
                                     startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                                    dismissProjectionPromptNotification()
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -1028,6 +1030,9 @@ class LEDService : Service() {
     }
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
+        if (type == LedAnimationType.AMBILIGHT) {
+            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        }
         return type.needsMediaProjection
     }
 
@@ -1042,8 +1047,10 @@ class LEDService : Service() {
         return when (type) {
             LedAnimationType.AMBILIGHT -> {
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
+                val useMP = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
                 AmbilightAnimation(
                     ledController,
+                    if (useMP) synchronized(mediaProjectionLock) { mediaProjection } else null,
                     currentAmbilightDisplayId,
                     displayMetrics,
                     profile,
