@@ -86,7 +86,6 @@
                         android:textStyle="bold"
                         android:letterSpacing="0.05" />
 
-
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/serviceToggle"
                         android:layout_width="wrap_content"

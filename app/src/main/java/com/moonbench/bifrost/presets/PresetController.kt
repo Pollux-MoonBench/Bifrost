@@ -79,6 +79,23 @@ class PresetController(
 
     fun getPresets(): List<LedPreset> = presets
 
+    /**
+     * Rebuild the in-memory list from prefs without disturbing the currently
+     * selected preset. Used on activity resume so presets installed or removed
+     * while the UI was backgrounded (e.g. via the external API, or on app
+     * uninstall) show up when the user next opens Bifrost.
+     */
+    fun reloadFromPrefs() {
+        val selectedName = presets.getOrNull(selectedIndex)?.name
+        presets.clear()
+        presets.addAll(loadPresetsFromPrefs())
+        selectedIndex = if (selectedName != null) {
+            presets.indexOfFirst { it.name == selectedName }.takeIf { it >= 0 } ?: 0
+        } else {
+            0
+        }
+    }
+
 
     fun setAppProfileDefaultPreset(index: Int, isDefault: Boolean): Boolean {
         if (index !in presets.indices) return false
@@ -230,7 +247,8 @@ class PresetController(
             icon = current.icon,
             customEmoji = current.customEmoji,
             customImageFileName = current.customImageFileName,
-            appIconPackageName = current.appIconPackageName
+            appIconPackageName = current.appIconPackageName,
+            ownerPackage = current.ownerPackage
         )
 
         replacePreset(
@@ -340,6 +358,8 @@ class PresetController(
                 .takeIf { it.isNotBlank() }
             val appIconPackageName = obj.optString("appIconPackageName")
                 .takeIf { it.isNotBlank() }
+            val ownerPackage = obj.optString("ownerPackage")
+                .takeIf { it.isNotBlank() }
 
             val accepted = obj.optBoolean("ragnarokAccepted", false)
             val useCustomSampling = obj.optBoolean("useCustomSampling", false)
@@ -378,7 +398,8 @@ class PresetController(
                     icon = icon,
                     customEmoji = customEmoji,
                     customImageFileName = customImageFileName,
-                    appIconPackageName = appIconPackageName
+                    appIconPackageName = appIconPackageName,
+                    ownerPackage = ownerPackage
                 )
             )
         }
@@ -418,6 +439,7 @@ class PresetController(
             preset.customEmoji?.let { obj.put("customEmoji", it) }
             preset.customImageFileName?.let { obj.put("customImageFileName", it) }
             preset.appIconPackageName?.let { obj.put("appIconPackageName", it) }
+            preset.ownerPackage?.let { obj.put("ownerPackage", it) }
             array.put(obj)
         }
 
@@ -502,6 +524,7 @@ class PresetController(
             customEmoji = null,
             customImageFileName = null,
             appIconPackageName = null,
+            ownerPackage = null,
             ragnarokAccepted = base.performanceProfile == PerformanceProfile.RAGNAROK
         )
 
@@ -550,7 +573,8 @@ class PresetController(
                 icon = current.icon,
                 customEmoji = current.customEmoji,
                 customImageFileName = current.customImageFileName,
-                appIconPackageName = current.appIconPackageName
+                appIconPackageName = current.appIconPackageName,
+                ownerPackage = current.ownerPackage
             )
 
             replacePreset(

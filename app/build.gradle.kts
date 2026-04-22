@@ -13,10 +13,19 @@ android {
         applicationId = "com.moonbench.bifrost"
         minSdk = 33
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.1"
+        versionCode = 8
+        versionName = "1.2.0-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("${rootProject.projectDir}/release-key.jks")
+            storePassword = "watne123"
+            keyAlias = "bifrost"
+            keyPassword = "watne123"
+        }
     }
 
     buildTypes {
@@ -27,6 +36,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -35,6 +45,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+    buildFeatures {
+        buildConfig = true
     }
 }
 
@@ -45,6 +58,7 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.material3)
+    implementation("com.github.woheller69:FreeDroidWarn:V1.+")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

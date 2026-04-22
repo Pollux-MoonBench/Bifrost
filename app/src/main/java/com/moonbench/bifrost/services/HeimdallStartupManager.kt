@@ -15,7 +15,6 @@ object HeimdallStartupManager {
     private const val PREF_KEY_LAST_PRESET = "last_preset_name"
     private const val PREF_KEY_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
     private const val PREF_KEY_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
-    private const val PREF_KEY_APP_PROFILE_ENABLED = "auto_switch_enabled"
 
     fun isAutoStartEnabled(prefs: SharedPreferences): Boolean {
         return prefs.getBoolean(PREF_KEY_AUTO_START_HEIMDALL, false)
@@ -26,7 +25,8 @@ object HeimdallStartupManager {
     }
 
     enum class StartupSkipReason {
-        NO_PRESET_AVAILABLE
+        NO_PRESET_AVAILABLE,
+        MEDIA_PROJECTION_REQUIRES_USER_ACTION
     }
 
     data class StartupDecision(
@@ -45,6 +45,13 @@ object HeimdallStartupManager {
                 skipReason = StartupSkipReason.NO_PRESET_AVAILABLE
             )
 
+        // MediaProjection sessions are not restorable at boot without user interaction.
+        if (preset.animationType.needsMediaProjection) {
+            return StartupDecision(
+                serviceIntent = null,
+                skipReason = StartupSkipReason.MEDIA_PROJECTION_REQUIRES_USER_ACTION
+            )
+        }
 
         val serviceIntent = Intent(context, LEDService::class.java).apply {
             putExtra("animationType", preset.animationType.name)
@@ -80,27 +87,9 @@ object HeimdallStartupManager {
         val array = runCatching { JSONArray(raw) }.getOrNull() ?: return null
         if (array.length() == 0) return null
 
-        val appProfileEnabled = prefs.getBoolean(PREF_KEY_APP_PROFILE_ENABLED, false)
-        if (appProfileEnabled) {
-            val defaultObj = findDefaultPresetObject(array)
-            if (defaultObj != null) {
-                return parsePreset(defaultObj)
-            }
-        }
-
         val lastPresetName = prefs.getString(PREF_KEY_LAST_PRESET, null)
         val presetObj = findPresetObject(array, lastPresetName) ?: return null
         return parsePreset(presetObj)
-    }
-
-    private fun findDefaultPresetObject(array: JSONArray): JSONObject? {
-        for (i in 0 until array.length()) {
-            val obj = array.optJSONObject(i) ?: continue
-            if (obj.optBoolean("isAppProfileDefault", false)) {
-                return obj
-            }
-        }
-        return null
     }
 
     private fun findPresetObject(array: JSONArray, name: String?): JSONObject? {
