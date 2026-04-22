@@ -1,6 +1,7 @@
 package com.moonbench.bifrost.services
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,6 +13,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.database.ContentObserver
+import android.provider.Settings
+import android.content.pm.ServiceInfo
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.projection.MediaProjection
@@ -47,6 +51,8 @@ import com.moonbench.bifrost.animations.RaveAnimation
 import com.moonbench.bifrost.animations.SparkleAnimation
 import com.moonbench.bifrost.animations.StaticAnimation
 import com.moonbench.bifrost.animations.StrobeAnimation
+import com.moonbench.bifrost.external.ExternalOverrideState
+import com.moonbench.bifrost.external.Terminator
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
 import java.util.concurrent.atomic.AtomicBoolean
@@ -56,7 +62,6 @@ class LEDService : Service() {
     companion object {
         private const val TAG = "BIBI"
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
-        const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = "ambilight_use_media_projection"
         private const val ACTIVITY_CHECK_INTERVAL_MS = 2000L
         private const val ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS = 700L
         private const val TRANSITION_RETRY_DELAY_MS = 200L
@@ -67,13 +72,36 @@ class LEDService : Service() {
         const val CHANNEL_ID = "LEDServiceChannel"
         const val NOTIFICATION_ID = 4242
         const val ACTION_STOP = "com.moonbench.bifrost.STOP"
+        /** Legacy alias for [ACTION_STOP] that also signals MainActivity to finish. */
         const val ACTION_KILL = "com.moonbench.bifrost.KILL"
         const val ACTION_UPDATE_PARAMS = "com.moonbench.bifrost.UPDATE_PARAMS"
         const val ACTION_FORCE_APP_PROFILE_RESOLUTION = "com.moonbench.bifrost.FORCE_APP_PROFILE_RESOLUTION"
         const val ACTION_SUPPLY_PROJECTION = "com.moonbench.bifrost.SUPPLY_PROJECTION"
+        const val ACTION_EXTERNAL_DISPLAY = "com.moonbench.bifrost.EXTERNAL_DISPLAY"
+        const val ACTION_EXTERNAL_CLEAR = "com.moonbench.bifrost.EXTERNAL_CLEAR"
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
         const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
+        const val EXTRA_ADAPTIVE_BRIGHTNESS = "adaptiveBrightness"
+
+        const val EXTRA_EXTERNAL_CALLER_PACKAGE = "external.callerPackage"
+        const val EXTRA_EXTERNAL_EFFECT = "external.effect"
+        const val EXTRA_EXTERNAL_COLOR = "external.color"
+        const val EXTRA_EXTERNAL_COLOR_RIGHT = "external.colorRight"
+        const val EXTRA_EXTERNAL_INTENSITY = "external.intensity"
+        const val EXTRA_EXTERNAL_SPEED = "external.speed"
+        const val EXTRA_EXTERNAL_SMOOTHNESS = "external.smoothness"
+        const val EXTRA_EXTERNAL_SENSITIVITY = "external.sensitivity"
+        const val EXTRA_EXTERNAL_PRIORITY = "external.priority"
+        const val EXTRA_EXTERNAL_TERMINATOR = "external.terminator"
+        const val EXTRA_EXTERNAL_DURATION_MS = "external.durationMs"
+
+        const val TERMINATOR_DURATION = "DURATION"
+        const val TERMINATOR_NEXT_COMMAND = "NEXT_COMMAND"
+        const val TERMINATOR_EXPLICIT_CLEAR = "EXPLICIT_CLEAR"
+
+        /** Minimum LED scale applied when screen brightness is at its lowest (0–255 → 0.25). */
+        private const val ADAPTIVE_BRIGHTNESS_MIN_SCALE = 0.25f
         private const val EXTRA_BATTERY_LOW_COLOR_OVERRIDE = "batteryLowColorOverride"
         private const val EXTRA_BATTERY_MID_COLOR_OVERRIDE = "batteryMidColorOverride"
         private const val EXTRA_BATTERY_HIGH_COLOR_OVERRIDE = "batteryHighColorOverride"
@@ -117,6 +145,7 @@ class LEDService : Service() {
     private var currentCpuHotColorOverride: Int? = null
     private var currentBatteryOverrideWhenPlugged: Boolean = false
     private var currentPersistentNotification: Boolean = true
+    private var currentAdaptiveBrightness: Boolean = false
     private var allowBackgroundRun: Boolean = false
     private var currentAmbilightDisplayId: Int = Display.DEFAULT_DISPLAY
     private var activeAnimationType: LedAnimationType? = null
@@ -128,6 +157,61 @@ class LEDService : Service() {
     private var pendingProjectionRunnable: Runnable? = null
     private var pendingShutdownRunnable: Runnable? = null
     private var isAppProfileSuppressed: Boolean = false
+
+    private var activeExternalOverride: ExternalOverrideState? = null
+    private var externalExpiryRunnable: Runnable? = null
+    private var savedStateBeforeExternalOverride: ExternalOverrideSnapshot? = null
+
+    private data class ExternalOverrideSnapshot(
+        val animationType: LedAnimationType,
+        val color: Int,
+        val rightColor: Int,
+        val brightness: Int,
+        val speed: Float,
+        val smoothness: Float,
+        val sensitivity: Float,
+        val isAppProfileSuppressed: Boolean,
+    )
+
+    /**
+     * Maps the current system screen brightness (0–255) to an LED brightness multiplier.
+     * Brightness 0 → ADAPTIVE_BRIGHTNESS_MIN_SCALE, brightness 255 → 1.0.
+     */
+    private val screenBrightnessObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            if (!currentAdaptiveBrightness) return
+            applyAdaptiveBrightnessToAnimation()
+        }
+    }
+
+    private fun screenBrightnessScale(): Float {
+        val raw = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrDefault(255)
+        val normalised = raw.coerceIn(0, 255) / 255f
+        return ADAPTIVE_BRIGHTNESS_MIN_SCALE + normalised * (1f - ADAPTIVE_BRIGHTNESS_MIN_SCALE)
+    }
+
+    private fun effectiveBrightness(): Int {
+        if (!currentAdaptiveBrightness) return currentBrightness
+        return (currentBrightness * screenBrightnessScale()).toInt().coerceIn(0, 255)
+    }
+
+    private fun applyAdaptiveBrightnessToAnimation() {
+        currentAnimation?.setTargetBrightness(effectiveBrightness())
+    }
+
+    private fun mountScreenBrightnessObserver() {
+        contentResolver.registerContentObserver(
+            Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS),
+            false,
+            screenBrightnessObserver
+        )
+    }
+
+    private fun unmountScreenBrightnessObserver() {
+        runCatching { contentResolver.unregisterContentObserver(screenBrightnessObserver) }
+    }
 
     private val batteryStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -150,14 +234,19 @@ class LEDService : Service() {
         override fun run() {
             if (!isRunning || isStopping.get()) return
 
-            Log.d(TAG, "activityCheckRunnable: tick — appProfileEnabled=${appProfileManager.isEnabled}, currentAnimationType=$currentAnimationType, activeAnimationType=$activeAnimationType, currentAnimation=${currentAnimation != null}, isTransitioning=${isTransitioning.get()}")
-            checkAutoProfileSwitch()
-            val nextDelay = if (appProfileManager.isEnabled) {
-                ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
+            if (!allowBackgroundRun && !isActivityRunning()) {
+                Log.d(TAG, "activityCheckRunnable: activity not running & no background run → stopping")
+                cleanupAndStop()
             } else {
-                ACTIVITY_CHECK_INTERVAL_MS
+                Log.d(TAG, "activityCheckRunnable: tick — appProfileEnabled=${appProfileManager.isEnabled}, currentAnimationType=$currentAnimationType, activeAnimationType=$activeAnimationType, currentAnimation=${currentAnimation != null}, isTransitioning=${isTransitioning.get()}")
+                checkAutoProfileSwitch()
+                val nextDelay = if (appProfileManager.isEnabled) {
+                    ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
+                } else {
+                    ACTIVITY_CHECK_INTERVAL_MS
+                }
+                handler.postDelayed(this, nextDelay)
             }
-            handler.postDelayed(this, nextDelay)
         }
     }
 
@@ -168,12 +257,14 @@ class LEDService : Service() {
         ledController = LedController()
         registerBatteryStateReceiver()
         refreshPluggedStateSnapshot()
+        mountScreenBrightnessObserver()
         handler.post(activityCheckRunnable)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) {
-            return START_STICKY
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         if (intent.action == ACTION_STOP) {
@@ -209,6 +300,16 @@ class LEDService : Service() {
             return START_NOT_STICKY
         }
 
+        if (intent.action == ACTION_EXTERNAL_DISPLAY) {
+            handleExternalDisplay(intent)
+            return START_NOT_STICKY
+        }
+
+        if (intent.action == ACTION_EXTERNAL_CLEAR) {
+            handleExternalClear(intent.getStringExtra(EXTRA_EXTERNAL_CALLER_PACKAGE))
+            return START_NOT_STICKY
+        }
+
         allowBackgroundRun = intent.getBooleanExtra(EXTRA_ALLOW_BACKGROUND_RUN, allowBackgroundRun)
         currentBatteryOverrideWhenPlugged = intent.getBooleanExtra(
             EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
@@ -218,9 +319,21 @@ class LEDService : Service() {
             EXTRA_PERSISTENT_NOTIFICATION,
             currentPersistentNotification
         )
+        currentAdaptiveBrightness = intent.getBooleanExtra(
+            EXTRA_ADAPTIVE_BRIGHTNESS,
+            currentAdaptiveBrightness
+        )
 
         val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
         isRunning = true
 
@@ -280,6 +393,7 @@ class LEDService : Service() {
         currentSensitivity = sensitivity
         isAppProfileSuppressed = false
 
+
         refreshPluggedStateSnapshot()
 
         if (appProfileManager.isEnabled) {
@@ -294,7 +408,7 @@ class LEDService : Service() {
             restartAnimationForCurrentState(force = true)
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun handleUpdateParams(intent: Intent) {
@@ -319,7 +433,15 @@ class LEDService : Service() {
         if (intent.hasExtra("brightness")) {
             val newBrightness = intent.getIntExtra("brightness", currentBrightness).coerceIn(0, 255)
             currentBrightness = newBrightness
-            animation?.setTargetBrightness(currentBrightness)
+            animation?.setTargetBrightness(effectiveBrightness())
+        }
+
+        if (intent.hasExtra(EXTRA_ADAPTIVE_BRIGHTNESS)) {
+            val newAdaptive = intent.getBooleanExtra(EXTRA_ADAPTIVE_BRIGHTNESS, currentAdaptiveBrightness)
+            if (newAdaptive != currentAdaptiveBrightness) {
+                currentAdaptiveBrightness = newAdaptive
+                animation?.setTargetBrightness(effectiveBrightness())
+            }
         }
 
         if (intent.hasExtra("speed")) {
@@ -587,18 +709,10 @@ class LEDService : Service() {
         pendingProjectionRunnable?.let(handler::removeCallbacks)
         pendingProjectionRunnable = null
 
-        stopCurrentAnimation()
+        // Apply adaptive brightness scaling on top of the user-configured brightness level.
+        val resolvedBrightness = effectiveBrightness()
 
-        if (needsMediaProjection(animationType) && (resultCode != Activity.RESULT_OK || data == null)) {
-            Log.d(TAG, "processAnimationChange: missing MediaProjection token for $animationType, prompting user")
-            showProjectionPromptNotification()
-            pendingTransitionRunnable = Runnable {
-                isTransitioning.set(false)
-                pendingTransitionRunnable = null
-            }
-            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_START_DELAY_MS)
-            return
-        }
+        stopCurrentAnimation()
 
         if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
             pendingTransitionRunnable = Runnable {
@@ -610,8 +724,7 @@ class LEDService : Service() {
                             try {
                                 if (isRunning && !isStopping.get()) {
                                     replaceMediaProjection(resultCode, data)
-                                    startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
-                                    dismissProjectionPromptNotification()
+                                    startAnimation(animationType, color, rightColor, resolvedBrightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()
@@ -637,7 +750,7 @@ class LEDService : Service() {
         } else {
             pendingTransitionRunnable = Runnable {
                 if (isRunning && !isStopping.get()) {
-                    startAnimation(animationType, color, rightColor, brightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
+                    startAnimation(animationType, color, rightColor, resolvedBrightness, speed, smoothness, sensitivity, profile, currentSaturationBoost)
                 }
                 isTransitioning.set(false)
                 pendingTransitionRunnable = null
@@ -681,6 +794,11 @@ class LEDService : Service() {
     private fun checkAutoProfileSwitch() {
         if (!isRunning || isTransitioning.get() || isStopping.get()) {
             Log.d(TAG, "checkAutoProfileSwitch: skipping — isRunning=$isRunning, isTransitioning=${isTransitioning.get()}, isStopping=${isStopping.get()}")
+            return
+        }
+
+        if (activeExternalOverride != null) {
+            Log.d(TAG, "checkAutoProfileSwitch: external override active, skipping")
             return
         }
 
@@ -766,9 +884,25 @@ class LEDService : Service() {
         return value.takeUnless { it == COLOR_OVERRIDE_UNSET }
     }
 
+    private fun isActivityRunning(): Boolean {
+        return runCatching {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val tasks = activityManager.appTasks
+            for (task in tasks) {
+                val componentName = task.taskInfo.baseActivity
+                if (componentName?.packageName == packageName) {
+                    return@runCatching true
+                }
+            }
+            false
+        }.getOrDefault(false)
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Keep running as a true foreground daemon; explicit stop/kill is required.
+        if (!allowBackgroundRun) {
+            cleanupAndStop()
+        }
     }
 
     override fun onDestroy() {
@@ -776,6 +910,7 @@ class LEDService : Service() {
         handler.removeCallbacks(activityCheckRunnable)
         clearPendingCallbacks()
         unregisterBatteryStateReceiver()
+        unmountScreenBrightnessObserver()
         cleanupAndStop()
     }
 
@@ -786,6 +921,8 @@ class LEDService : Service() {
         pendingProjectionRunnable = null
         pendingShutdownRunnable?.let(handler::removeCallbacks)
         pendingShutdownRunnable = null
+        externalExpiryRunnable?.let(handler::removeCallbacks)
+        externalExpiryRunnable = null
     }
 
     private fun cleanupAndStop() {
@@ -800,6 +937,8 @@ class LEDService : Service() {
             isTransitioning.set(false)
             activeAnimationType = null
             isAppProfileSuppressed = false
+            activeExternalOverride = null
+            savedStateBeforeExternalOverride = null
 
             stopCurrentAnimation()
 
@@ -850,12 +989,12 @@ class LEDService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val killIntent = Intent(this, LEDService::class.java).apply { action = ACTION_KILL }
-        val killPendingIntent =
+        val stopIntent = Intent(this, LEDService::class.java).apply { action = ACTION_STOP }
+        val stopPendingIntent =
             PendingIntent.getService(
                 this,
-                2,
-                killIntent,
+                1,
+                stopIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
@@ -872,9 +1011,9 @@ class LEDService : Service() {
             .setSmallIcon(R.drawable.ic_notification_small)
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher_foreground))
             .setContentIntent(mainPendingIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Kill", killPendingIntent)
+            .addAction(android.R.drawable.ic_delete, "Stop", stopPendingIntent)
             .setOnlyAlertOnce(true)
-            .setOngoing(true)
+            .setOngoing(currentPersistentNotification)
             .build()
     }
 
@@ -919,17 +1058,16 @@ class LEDService : Service() {
         saturationBoost: Float
     ) {
         try {
-            Log.d(TAG, "startAnimation: type=$type, needsMP=${type.needsMediaProjection}, mediaProjection=${synchronized(mediaProjectionLock) { mediaProjection != null }}, brightness=$brightness")
+            Log.d(TAG, "startAnimation: type=$type, mediaProjection=${synchronized(mediaProjectionLock) { mediaProjection != null }}")
             val animation = createAnimation(type, color, rightColor, profile, saturationBoost)
             currentAnimation = animation
 
             if (animation == null) {
-                Log.e(TAG, "CRITICAL: startAnimation: createAnimation returned null for type=$type")
+                Log.w(TAG, "startAnimation: createAnimation returned null for type=$type")
                 activeAnimationType = null
                 return
             }
 
-            Log.d(TAG, "Animation created successfully, applying parameters (brightness=$brightness, speed=$speed, sensitivity=$sensitivity)")
             animation.setTargetBrightness(brightness)
             animation.setSpeed(speed)
             animation.setLerpStrength(smoothness)
@@ -974,8 +1112,128 @@ class LEDService : Service() {
         // because the preset name matched even though MP was missing).
         appProfileManager.forceNextResolution()
         Log.d(TAG, "handleSupplyProjection: forced next resolution, waiting for user to navigate back to mapped app")
+    }
 
-        if (!appProfileManager.isEnabled) {
+    private fun handleExternalDisplay(intent: Intent) {
+        if (!isRunning || isStopping.get()) return
+
+        val callerPkg = intent.getStringExtra(EXTRA_EXTERNAL_CALLER_PACKAGE) ?: return
+        val effectName = intent.getStringExtra(EXTRA_EXTERNAL_EFFECT) ?: return
+        val effect = runCatching { LedAnimationType.valueOf(effectName) }.getOrNull() ?: return
+
+        val newPriority = intent.getIntExtra(EXTRA_EXTERNAL_PRIORITY, 50)
+        val current = activeExternalOverride
+        if (current != null && current.callerPackage != callerPkg && current.priority > newPriority) {
+            Log.d(TAG, "handleExternalDisplay: preempted — existing override from ${current.callerPackage} priority ${current.priority} > $newPriority from $callerPkg")
+            return
+        }
+
+        val color = intent.getIntExtra(EXTRA_EXTERNAL_COLOR, currentColor)
+        val rightColor = intent.getIntExtra(EXTRA_EXTERNAL_COLOR_RIGHT, color)
+        val intensity = intent.getIntExtra(EXTRA_EXTERNAL_INTENSITY, currentBrightness).coerceIn(0, 255)
+        val speed = intent.getFloatExtra(EXTRA_EXTERNAL_SPEED, currentSpeed).coerceIn(0f, 1f)
+        val smoothness = intent.getFloatExtra(EXTRA_EXTERNAL_SMOOTHNESS, currentSmoothness).coerceIn(0f, 1f)
+        val sensitivity = intent.getFloatExtra(EXTRA_EXTERNAL_SENSITIVITY, currentSensitivity).coerceIn(0f, 1f)
+
+        val terminator: Terminator = when (intent.getStringExtra(EXTRA_EXTERNAL_TERMINATOR)) {
+            TERMINATOR_DURATION -> Terminator.Duration(
+                intent.getLongExtra(EXTRA_EXTERNAL_DURATION_MS, 0L)
+            )
+            TERMINATOR_EXPLICIT_CLEAR -> Terminator.UntilExplicitClear
+            else -> Terminator.UntilNextCommand
+        }
+
+        // Snapshot the pre-override state only on the first transition in —
+        // re-commands from the same or higher-priority caller replay onto the
+        // already-captured snapshot.
+        if (current == null) {
+            savedStateBeforeExternalOverride = ExternalOverrideSnapshot(
+                animationType = currentAnimationType,
+                color = currentColor,
+                rightColor = currentRightColor,
+                brightness = currentBrightness,
+                speed = currentSpeed,
+                smoothness = currentSmoothness,
+                sensitivity = currentSensitivity,
+                isAppProfileSuppressed = isAppProfileSuppressed,
+            )
+        }
+
+        activeExternalOverride = ExternalOverrideState(
+            callerPackage = callerPkg,
+            effect = effect,
+            color = color,
+            colorRight = rightColor,
+            intensity = intensity,
+            speed = speed,
+            smoothness = smoothness,
+            sensitivity = sensitivity,
+            terminator = terminator,
+            priority = newPriority,
+            startedAtMs = System.currentTimeMillis(),
+        )
+
+        currentAnimationType = effect
+        currentColor = color
+        currentRightColor = rightColor
+        currentBrightness = intensity
+        currentSpeed = speed
+        currentSmoothness = smoothness
+        currentSensitivity = sensitivity
+        isAppProfileSuppressed = false
+
+        externalExpiryRunnable?.let(handler::removeCallbacks)
+        externalExpiryRunnable = null
+        if (terminator is Terminator.Duration) {
+            val expiry = Runnable {
+                externalExpiryRunnable = null
+                revertExternalOverride()
+            }
+            externalExpiryRunnable = expiry
+            handler.postDelayed(expiry, terminator.millis)
+        }
+
+        restartAnimationForCurrentState(force = true)
+    }
+
+    private fun handleExternalClear(callerPkg: String?) {
+        val current = activeExternalOverride ?: return
+        if (callerPkg != null && current.callerPackage != callerPkg) {
+            Log.d(TAG, "handleExternalClear: ignoring — override owned by ${current.callerPackage}, clear from $callerPkg")
+            return
+        }
+        revertExternalOverride()
+    }
+
+    private fun revertExternalOverride() {
+        externalExpiryRunnable?.let(handler::removeCallbacks)
+        externalExpiryRunnable = null
+        val snapshot = savedStateBeforeExternalOverride
+        activeExternalOverride = null
+        savedStateBeforeExternalOverride = null
+
+        if (snapshot != null) {
+            currentAnimationType = snapshot.animationType
+            currentColor = snapshot.color
+            currentRightColor = snapshot.rightColor
+            currentBrightness = snapshot.brightness
+            currentSpeed = snapshot.speed
+            currentSmoothness = snapshot.smoothness
+            currentSensitivity = snapshot.sensitivity
+            isAppProfileSuppressed = snapshot.isAppProfileSuppressed
+        }
+
+        if (!isRunning || isStopping.get()) return
+
+        // If app-profile mode is active, let it re-resolve cleanly rather than
+        // snapping back to whatever was painted when the override started.
+        if (appProfileManager.isEnabled) {
+            appProfileManager.forceNextResolution()
+            checkAutoProfileSwitch()
+            if (!isAppProfileSuppressed && currentAnimation == null) {
+                restartAnimationForCurrentState(force = true)
+            }
+        } else {
             restartAnimationForCurrentState(force = true)
         }
     }
@@ -1004,8 +1262,8 @@ class LEDService : Service() {
         val notification = NotificationCompat.Builder(this, PROJECTION_PROMPT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_small)
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher_foreground))
-            .setContentTitle("Internal audio capture permission needed")
-            .setContentText("Tap to grant Android audio capture consent for assigned audio animations.")
+            .setContentTitle("Screen capture permission needed")
+            .setContentText("Tap to grant permission so Bifrost can run the assigned animation.")
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -1030,10 +1288,9 @@ class LEDService : Service() {
     }
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
-        if (type == LedAnimationType.AMBILIGHT) {
-            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
-        }
-        return type.needsMediaProjection
+        return type == LedAnimationType.AMBILIGHT ||
+                type == LedAnimationType.AUDIO_REACTIVE ||
+                type == LedAnimationType.AMBIAURORA
     }
 
     private fun createAnimation(
@@ -1043,15 +1300,13 @@ class LEDService : Service() {
         profile: PerformanceProfile,
         saturationBoost: Float
     ): LedAnimation? {
-
         return when (type) {
             LedAnimationType.AMBILIGHT -> {
+                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
-                val useMP = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
                 AmbilightAnimation(
                     ledController,
-                    if (useMP) synchronized(mediaProjectionLock) { mediaProjection } else null,
-                    currentAmbilightDisplayId,
+                    projection,
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,
@@ -1060,20 +1315,23 @@ class LEDService : Service() {
                 )
             }
             LedAnimationType.AUDIO_REACTIVE -> {
+                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
+                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AudioReactiveAnimation(
                     ledController,
-                    synchronized(mediaProjectionLock) { mediaProjection },
+                    projection,
+                    displayMetrics,
                     color,
                     rightColor,
                     profile
                 )
             }
             LedAnimationType.AMBIAURORA -> {
+                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
                 val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
                 AmbiAuroraAnimation(
                     ledController,
-                    synchronized(mediaProjectionLock) { mediaProjection },
-                    currentAmbilightDisplayId,
+                    projection,
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,

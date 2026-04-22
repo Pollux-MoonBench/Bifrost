@@ -37,6 +37,11 @@
     <string name="app_profile_info_subtitle">Animations now switch automatically based on the foreground app.</string>
     <string name="app_profile_info_body">In this mode, swiping presets will not change the running animation. Assign apps to presets in settings to control what plays automatically.</string>
 
+    <string name="perm_control_leds_label">Control Bifrost LEDs</string>
+    <string name="perm_control_leds_desc">Allows the app to send LED animations and presets to Bifrost.</string>
+
+    <string name="external_api_switch_label">Allow third-party LED control</string>
+
     <string name="startup_title">Welcome to Bifrost</string>
     <string name="startup_progress_notifications">Step 1/3 - Enable notifications</string>
     <string name="startup_progress_accessibility">Step 2/3 - Enable accessibility capture</string>

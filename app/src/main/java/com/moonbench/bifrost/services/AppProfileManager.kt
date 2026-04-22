@@ -102,6 +102,15 @@ class AppProfileManager(private val prefs: SharedPreferences) {
         saveMappings(updated)
     }
 
+    fun removeMappingsReferencing(presetNames: Collection<String>) {
+        if (presetNames.isEmpty()) return
+        val nameSet = presetNames.toHashSet()
+        val current = getMappings()
+        val filtered = current.filterValues { it !in nameSet }
+        if (filtered.size == current.size) return
+        saveMappings(filtered)
+    }
+
     private fun saveMappings(mappings: Map<String, String>) {
         val obj = JSONObject()
         mappings.forEach { (k, v) -> obj.put(k, v) }

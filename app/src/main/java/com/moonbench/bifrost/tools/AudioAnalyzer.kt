@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.AudioRouting
 import android.media.projection.MediaProjection
 import android.os.Build
 import android.os.Process
@@ -18,7 +19,7 @@ class AudioAnalyzer(
     private val callback: (Float) -> Unit
 ) {
     companion object {
-        private const val TAG = "BIBI.Audio"
+        private const val TAG = "AudioAnalyzer"
         private const val SAMPLE_RATE_HZ = 8000
         private const val DEFAULT_BUFFER_BYTES = 512
         private const val THREAD_JOIN_TIMEOUT_MS = 200L
@@ -26,6 +27,7 @@ class AudioAnalyzer(
 
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
+    private var routingListener: AudioRouting.OnRoutingChangedListener? = null
 
     @Volatile
     private var running = false
@@ -40,7 +42,6 @@ class AudioAnalyzer(
             val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                 .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                .addMatchingUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                 .build()
 
@@ -70,6 +71,18 @@ class AudioAnalyzer(
                 return
             }
 
+            routingListener = AudioRouting.OnRoutingChangedListener { route ->
+                val audioRoute = route as? AudioRecord ?: return@OnRoutingChangedListener
+                if (HardwareDeviceBlacklist.isBlockedMicrophoneDevice(audioRoute.routedDevice)) {
+                    Log.w(TAG, "Blocked physical microphone route detected; stopping capture")
+                    running = false
+                    cleanup()
+                }
+            }
+            routingListener?.let { listener ->
+                record.addOnRoutingChangedListener(listener, null)
+            }
+
             running = true
 
             captureThread = Thread({
@@ -77,7 +90,13 @@ class AudioAnalyzer(
 
                 try {
                     record.startRecording()
-                    Log.i(TAG, "Playback capture started")
+
+                    if (HardwareDeviceBlacklist.isBlockedMicrophoneDevice(record.routedDevice)) {
+                        Log.w(TAG, "Initial route resolved to blocked microphone; aborting capture")
+                        running = false
+                        cleanup()
+                        return@Thread
+                    }
 
                     var skip = 0
                     val skipInterval = when {
@@ -110,14 +129,14 @@ class AudioAnalyzer(
                         }
                     }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Audio capture loop failed (needs projection consent + capturable source app)", e)
+                    Log.w(TAG, "Audio capture loop failed", e)
                 }
             }, "AudioCapture")
 
             captureThread?.start()
 
         } catch (e: Exception) {
-            Log.w(TAG, "Audio analyzer failed to start (projection token invalid or audio permission missing)", e)
+            Log.w(TAG, "Audio analyzer failed to start", e)
             running = false
             cleanup()
         }
@@ -141,6 +160,9 @@ class AudioAnalyzer(
     private fun cleanup() {
         try {
             audioRecord?.let { record ->
+                routingListener?.let { listener ->
+                    runCatching { record.removeOnRoutingChangedListener(listener) }
+                }
                 if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                     record.stop()
                 }
@@ -151,5 +173,6 @@ class AudioAnalyzer(
         }
 
         audioRecord = null
+        routingListener = null
     }
 }

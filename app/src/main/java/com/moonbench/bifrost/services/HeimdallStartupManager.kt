@@ -26,7 +26,8 @@ object HeimdallStartupManager {
     }
 
     enum class StartupSkipReason {
-        NO_PRESET_AVAILABLE
+        NO_PRESET_AVAILABLE,
+        MEDIA_PROJECTION_REQUIRES_USER_ACTION
     }
 
     data class StartupDecision(
@@ -45,6 +46,13 @@ object HeimdallStartupManager {
                 skipReason = StartupSkipReason.NO_PRESET_AVAILABLE
             )
 
+        // MediaProjection sessions are not restorable at boot without user interaction.
+        if (preset.animationType.needsMediaProjection) {
+            return StartupDecision(
+                serviceIntent = null,
+                skipReason = StartupSkipReason.MEDIA_PROJECTION_REQUIRES_USER_ACTION
+            )
+        }
 
         val serviceIntent = Intent(context, LEDService::class.java).apply {
             putExtra("animationType", preset.animationType.name)

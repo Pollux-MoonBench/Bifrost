@@ -10,6 +10,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.WallpaperManager
 import android.content.ComponentName
+import android.content.res.ColorStateList
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -26,7 +27,6 @@ import android.provider.Settings
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
-import android.util.Log
 import android.view.Display
 import android.view.DragEvent
 import android.view.LayoutInflater
@@ -42,7 +42,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.SeekBar
-import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -55,6 +54,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import android.util.Log
+import android.widget.ScrollView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -67,6 +68,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.moonbench.bifrost.animations.LedAnimationType
+import com.moonbench.bifrost.external.ExternalApiGate
 import com.moonbench.bifrost.services.AppProfileManager
 import com.moonbench.bifrost.services.BifrostAccessibilityService
 import com.moonbench.bifrost.services.HeimdallStartupManager
@@ -92,29 +94,25 @@ import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
-    private enum class SettingsTab {
-        HEIMDALL,
-        LIVE_WALLPAPER
-    }
-
     private lateinit var serviceToggle: SwitchMaterial
     private lateinit var autoStartupSwitch: SwitchMaterial
     private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
     private lateinit var persistentNotificationSwitch: SwitchMaterial
+    private lateinit var adaptiveBrightnessSwitch: SwitchMaterial
+    private lateinit var externalApiSwitch: SwitchMaterial
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var animationSpinner: Spinner
     private lateinit var profileSpinner: Spinner
     private lateinit var presetSpinner: Spinner
+    private lateinit var themeSpinner: Spinner
+    private lateinit var exportThemeButton: MaterialButton
+    private lateinit var importThemeButton: MaterialButton
     private lateinit var savePresetButton: MaterialButton
     private lateinit var modifyPresetButton: MaterialButton
     private lateinit var deletePresetButton: MaterialButton
     private lateinit var customizePresetArtworkButton: MaterialButton
     private lateinit var exportPresetsButton: MaterialButton
     private lateinit var importPresetsButton: MaterialButton
-    private lateinit var heimdallTabButton: MaterialButton
-    private lateinit var liveWallpaperTabButton: MaterialButton
-    private lateinit var heimdallSettingsScroll: ScrollView
-    private lateinit var liveWallpaperSettingsScroll: ScrollView
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
     private lateinit var batteryLowColorButton: MaterialButton
@@ -130,19 +128,30 @@ class MainActivity : AppCompatActivity() {
     private lateinit var saturationBoostSeekBar: SeekBar
     private lateinit var customSamplingSwitch: SwitchMaterial
     private lateinit var singleColorSwitch: SwitchMaterial
-    private lateinit var ambilightUseMediaProjectionSwitch: SwitchMaterial
     private lateinit var breatheWhenChargingSwitch: SwitchMaterial
     private lateinit var chargingSpeedIndicatorSwitch: SwitchMaterial
     private lateinit var flashWhenReadySwitch: SwitchMaterial
     private lateinit var appProfileSwitch: SwitchMaterial
     private lateinit var homeAppProfileSwitch: SwitchMaterial
     private lateinit var appProfileDefaultSwitch: SwitchMaterial
+    private lateinit var coloredLogoSwitch: SwitchMaterial
     private lateinit var assignAppButton: MaterialButton
     private lateinit var manageAppsButton: MaterialButton
     private lateinit var settingsOverlay: View
     private lateinit var homeContainer: View
     private lateinit var homeSettingsButton: MaterialButton
     private lateinit var closeSettingsButton: MaterialButton
+    private lateinit var tabUiSettings: MaterialButton
+    private lateinit var tabBehaviorSettings: MaterialButton
+    private lateinit var tabThemesSettings: MaterialButton
+    private lateinit var liveWallpaperTabButton: MaterialButton
+    private lateinit var liveWallpaperSettingsScroll: ScrollView
+    private lateinit var liveWallpaperVideoPathText: TextView
+    private lateinit var liveWallpaperPickVideoButton: MaterialButton
+    private lateinit var liveWallpaperApplyButton: MaterialButton
+    private lateinit var liveWallpaperPerformanceSpinner: Spinner
+    private lateinit var liveWallpaperFpsSeekBar: SeekBar
+    private lateinit var liveWallpaperFpsValueText: TextView
     private lateinit var presetCoverFlowScroll: LockableHorizontalScrollView
     private lateinit var presetCoverFlowContainer: LinearLayout
     private lateinit var activePresetInfoCard: MaterialCardView
@@ -151,25 +160,57 @@ class MainActivity : AppCompatActivity() {
     private lateinit var activePresetAnimationText: TextView
     private lateinit var activePresetProfileText: TextView
     private lateinit var modeCard: MaterialCardView
+    private lateinit var appProfileCard: MaterialCardView
     private lateinit var colorCard: MaterialCardView
     private lateinit var animationCard: MaterialCardView
     private lateinit var performanceCard: MaterialCardView
+    private lateinit var themesCard: MaterialCardView
+    private lateinit var settingsSystemStatusCard: MaterialCardView
     private lateinit var systemStatusContainer: View
     private lateinit var bifrostLogoView: ImageView
     private lateinit var bifrostTitleText: TextView
-    private lateinit var liveWallpaperVideoPathText: TextView
-    private lateinit var liveWallpaperPickVideoButton: MaterialButton
-    private lateinit var liveWallpaperApplyButton: MaterialButton
-    private lateinit var liveWallpaperPerformanceSpinner: Spinner
-    private lateinit var liveWallpaperFpsSeekBar: SeekBar
-    private lateinit var liveWallpaperFpsValueText: TextView
     private var thorLaunchBottomSwitch: SwitchMaterial? = null
     private var thorAmbilightBottomSwitch: SwitchMaterial? = null
 
     private val prefs by lazy { getSharedPreferences("bifrost_prefs", MODE_PRIVATE) }
 
+    private enum class SettingsTab {
+        UI,
+        BEHAVIOR,
+        THEMES,
+        LIVE_WALLPAPER
+    }
+
+    private data class HeaderThemePalette(
+        val introHueStart: Float,
+        val introHueSpan: Float,
+        val introSaturation: Float,
+        val introValue: Float,
+        val settleHueStart: Float,
+        val settleHueSpan: Float,
+        val settleHueWobbleAmplitude: Float,
+        val settleSaturationBase: Float,
+        val settleSaturationWave: Float,
+        val settleValueBase: Float,
+        val settleValueWave: Float,
+        val settleAlphaBase: Int,
+        val settleAlphaWave: Int,
+        val settlePhaseDegrees: Float
+    )
+
+    private data class UiTheme(
+        val id: String,
+        val label: String,
+        val backgroundColor: Int,
+        val cardColor: Int,
+        val surfaceColor: Int,
+        val textColor: Int,
+        val accentColor: Int,
+        val accentLightColor: Int,
+        val headerPalette: HeaderThemePalette
+    )
+
     companion object {
-        private const val TAG = "BIBI"
         var mediaProjectionResultCode: Int? = null
         var mediaProjectionData: Intent? = null
         private const val DEBOUNCE_DELAY = 500L
@@ -192,10 +233,14 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_FIRST_LAUNCH_ALERT_SHOWN = "first_launch_alert_shown"
         private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
         private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
-        private const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
+        private const val PREF_ADAPTIVE_BRIGHTNESS = "adaptive_brightness_enabled"
+        private const val PREF_SELECTED_UI_THEME = "selected_ui_theme"
+        private const val PREF_COLORED_LOGO_ENABLED = "colored_logo_enabled"
         private const val PREF_STARTUP_GUIDE_DONE = "startup_guide_done"
+        private const val AUTOSTART_PERMISSION_CHANNEL_ID = "bifrost_autostart_permission"
+        private const val AUTOSTART_PERMISSION_NOTIFICATION_ID = 4245
         private const val EXTRA_DISPLAY_RELAUNCH_ATTEMPT = "display_relaunch_attempt"
         private const val MAX_DISPLAY_RELAUNCH_ATTEMPTS = 3
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
@@ -205,8 +250,6 @@ class MainActivity : AppCompatActivity() {
         private const val EXTRA_CPU_COOL_COLOR_OVERRIDE = "cpuCoolColorOverride"
         private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
         private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
-        private const val AUTOSTART_PERMISSION_CHANNEL_ID = "bifrost_autostart_permission"
-        private const val AUTOSTART_PERMISSION_NOTIFICATION_ID = 4245
 
         private val DEFAULT_BATTERY_LOW_COLOR = Color.rgb(255, 0, 0)
         private val DEFAULT_BATTERY_MID_COLOR = Color.rgb(255, 255, 0)
@@ -240,6 +283,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedFlashWhenReady: Boolean = false
     private var selectedBatteryOverrideWhenPlugged: Boolean = false
     private var selectedPersistentNotification: Boolean = true
+    private var selectedAdaptiveBrightness: Boolean = false
     private var isAwaitingPermissionResult = false
     private var isUpdatingFromPreset = false
     private var isGrantingProjectionForAppProfile = false
@@ -255,13 +299,16 @@ class MainActivity : AppCompatActivity() {
     private var isCoverFlowTouching: Boolean = false
     private var lastCoverFlowScrollXForSnap: Int = 0
     private var isSettingsOverlayAnimating: Boolean = false
-    private var selectedSettingsTab: SettingsTab = SettingsTab.HEIMDALL
+    private var currentSettingsTab: SettingsTab = SettingsTab.UI
+    private var isColoredLogoEnabled: Boolean = true
     private var isSyncingAppProfileSwitches: Boolean = false
     private var isSyncingAppProfileDefaultSwitch: Boolean = false
     private var pendingPresetArtworkIndex: Int? = null
     private var presetArtworkSheetDialog: BottomSheetDialog? = null
     private var appProfileSyncRunnable: Runnable? = null
     private var resumeStateSyncRunnable: Runnable? = null
+    private var pendingBackupExportOptions: BackupArchiveTransfer.CategoryOptions? = null
+    private var pendingBackupImportOptions: BackupArchiveTransfer.CategoryOptions? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var presetController: PresetController
@@ -269,6 +316,61 @@ class MainActivity : AppCompatActivity() {
     private val colorPickerDialog = ColorPickerDialog()
     private val ragnarokWarningDialog = RagnarokWarningDialog()
     private lateinit var appProfileManager: AppProfileManager
+    private val builtInThemes = listOf(
+        UiTheme(
+            id = "classic",
+            label = "Classic",
+            backgroundColor = Color.parseColor("#0A0E1A"),
+            cardColor = Color.parseColor("#12182B"),
+            surfaceColor = Color.parseColor("#1A2236"),
+            textColor = Color.parseColor("#E8EEFF"),
+            accentColor = Color.parseColor("#6366F1"),
+            accentLightColor = Color.parseColor("#818CF8"),
+            headerPalette = HeaderThemePalette(
+                introHueStart = 0f,
+                introHueSpan = 360f,
+                introSaturation = 0.82f,
+                introValue = 1f,
+                settleHueStart = 18f,
+                settleHueSpan = 300f,
+                settleHueWobbleAmplitude = 10f,
+                settleSaturationBase = 0.28f,
+                settleSaturationWave = 0.14f,
+                settleValueBase = 0.92f,
+                settleValueWave = 0.08f,
+                settleAlphaBase = 224,
+                settleAlphaWave = 31,
+                settlePhaseDegrees = 18f
+            )
+        ),
+        UiTheme(
+            id = "oled_purple",
+            label = "OLED Purple",
+            backgroundColor = Color.parseColor("#000000"),
+            cardColor = Color.parseColor("#000000"),
+            surfaceColor = Color.parseColor("#000000"),
+            textColor = Color.parseColor("#C084FC"),
+            accentColor = Color.parseColor("#A855F7"),
+            accentLightColor = Color.parseColor("#C084FC"),
+            headerPalette = HeaderThemePalette(
+                introHueStart = 264f,
+                introHueSpan = 64f,
+                introSaturation = 0.9f,
+                introValue = 0.98f,
+                settleHueStart = 272f,
+                settleHueSpan = 48f,
+                settleHueWobbleAmplitude = 5f,
+                settleSaturationBase = 0.5f,
+                settleSaturationWave = 0.16f,
+                settleValueBase = 0.76f,
+                settleValueWave = 0.2f,
+                settleAlphaBase = 236,
+                settleAlphaWave = 19,
+                settlePhaseDegrees = 12f
+            )
+        )
+    )
+    private var selectedUiTheme: UiTheme = builtInThemes.first()
 
     private val launchNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -285,7 +387,7 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
-                if (requiresProjectionToken(selectedAnimationType)) {
+                if (selectedAnimationType.needsMediaProjection) {
                     if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                         serviceController.startDebounced { createLedServiceIntent() }
                     } else {
@@ -379,24 +481,35 @@ class MainActivity : AppCompatActivity() {
     private val exportPresetsLauncher =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
-            exportPresetBundle(uri)
+            val options = pendingBackupExportOptions ?: BackupArchiveTransfer.CategoryOptions()
+            pendingBackupExportOptions = null
+            exportPresetBundle(uri, options)
+        }
+
+    private val exportThemeLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            exportThemeBundle(uri)
         }
 
     private val importPresetsLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
-            importPresetBundle(uri)
+            val options = pendingBackupImportOptions ?: BackupArchiveTransfer.CategoryOptions()
+            pendingBackupImportOptions = null
+            importPresetBundle(uri, options)
+        }
+
+    private val importThemeLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+            if (uri == null) return@registerForActivityResult
+            importThemeBundle(uri)
         }
 
     private val liveWallpaperVideoPickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
-
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-            runCatching {
-                contentResolver.takePersistableUriPermission(uri, flags)
-            }
-
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             LiveWallpaperSettingsManager.setVideoUri(prefs, uri)
             refreshLiveWallpaperVideoSummary()
             Toast.makeText(this, "Live wallpaper video updated", Toast.LENGTH_SHORT).show()
@@ -421,6 +534,17 @@ class MainActivity : AppCompatActivity() {
         setupStatusBar()
 
         if (maybeRelaunchOnCorrectDisplay()) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                launchNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
+        }
 
         initializeApp()
     }
@@ -454,6 +578,17 @@ class MainActivity : AppCompatActivity() {
         homeContainer = findViewById(R.id.homeContainer)
         homeSettingsButton = findViewById(R.id.homeSettingsButton)
         closeSettingsButton = findViewById(R.id.closeSettingsButton)
+        tabUiSettings = findViewById(R.id.tabUiSettings)
+        tabBehaviorSettings = findViewById(R.id.tabBehaviorSettings)
+        tabThemesSettings = findViewById(R.id.tabThemesSettings)
+        liveWallpaperTabButton = findViewById(R.id.liveWallpaperTabButton)
+        liveWallpaperSettingsScroll = findViewById(R.id.liveWallpaperSettingsScroll)
+        liveWallpaperVideoPathText = findViewById(R.id.liveWallpaperVideoPathText)
+        liveWallpaperPickVideoButton = findViewById(R.id.liveWallpaperPickVideoButton)
+        liveWallpaperApplyButton = findViewById(R.id.liveWallpaperApplyButton)
+        liveWallpaperPerformanceSpinner = findViewById(R.id.liveWallpaperPerformanceSpinner)
+        liveWallpaperFpsSeekBar = findViewById(R.id.liveWallpaperFpsSeekBar)
+        liveWallpaperFpsValueText = findViewById(R.id.liveWallpaperFpsValueText)
         presetCoverFlowScroll = findViewById(R.id.presetCoverFlowScroll)
         presetCoverFlowContainer = findViewById(R.id.presetCoverFlowContainer)
         activePresetInfoCard = findViewById(R.id.activePresetInfoCard)
@@ -466,19 +601,20 @@ class MainActivity : AppCompatActivity() {
         autoStartupSwitch = findViewById(R.id.autoStartupSwitch)
         pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
         persistentNotificationSwitch = findViewById(R.id.persistentNotificationSwitch)
+        adaptiveBrightnessSwitch = findViewById(R.id.adaptiveBrightnessSwitch)
+        externalApiSwitch = findViewById(R.id.externalApiSwitch)
         animationSpinner = findViewById(R.id.animationSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
         presetSpinner = findViewById(R.id.presetSpinner)
+        themeSpinner = findViewById(R.id.themeSpinner)
+        exportThemeButton = findViewById(R.id.exportThemeButton)
+        importThemeButton = findViewById(R.id.importThemeButton)
         savePresetButton = findViewById(R.id.savePresetButton)
         modifyPresetButton = findViewById(R.id.modifyPresetButton)
         deletePresetButton = findViewById(R.id.deletePresetButton)
         customizePresetArtworkButton = findViewById(R.id.customizePresetArtworkButton)
         exportPresetsButton = findViewById(R.id.exportPresetsButton)
         importPresetsButton = findViewById(R.id.importPresetsButton)
-        heimdallTabButton = findViewById(R.id.heimdallTabButton)
-        liveWallpaperTabButton = findViewById(R.id.liveWallpaperTabButton)
-        heimdallSettingsScroll = findViewById(R.id.heimdallSettingsScroll)
-        liveWallpaperSettingsScroll = findViewById(R.id.liveWallpaperSettingsScroll)
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
         batteryLowColorButton = findViewById(R.id.batteryLowColorButton)
@@ -494,11 +630,11 @@ class MainActivity : AppCompatActivity() {
         saturationBoostSeekBar = findViewById(R.id.saturationBoostSeekBar)
         customSamplingSwitch = findViewById(R.id.customSamplingSwitch)
         singleColorSwitch = findViewById(R.id.singleColorSwitch)
-        ambilightUseMediaProjectionSwitch = findViewById(R.id.ambilightUseMediaProjectionSwitch)
         breatheWhenChargingSwitch = findViewById(R.id.breatheWhenChargingSwitch)
         chargingSpeedIndicatorSwitch = findViewById(R.id.chargingSpeedIndicatorSwitch)
         flashWhenReadySwitch = findViewById(R.id.flashWhenReadySwitch)
         appProfileSwitch = findViewById(R.id.appProfileSwitch)
+        coloredLogoSwitch = findViewById(R.id.coloredLogoSwitch)
         homeAppProfileSwitch = findViewById(R.id.homeAppProfileSwitch)
         val appProfileDefaultSwitchId = resources.getIdentifier(
             "appProfileDefaultSwitch",
@@ -510,18 +646,16 @@ class MainActivity : AppCompatActivity() {
         assignAppButton = findViewById(R.id.assignAppButton)
         manageAppsButton = findViewById(R.id.manageAppsButton)
         modeCard = findViewById(R.id.modeCard)
+        appProfileCard = findViewById(R.id.appProfileCard)
         colorCard = findViewById(R.id.colorCard)
         animationCard = findViewById(R.id.animationCard)
         performanceCard = findViewById(R.id.performanceCard)
+        themesCard = findViewById(R.id.themesCard)
+        settingsSystemStatusCard = findViewById(R.id.settingsSystemStatusCard)
         systemStatusContainer = findViewById(R.id.systemStatusContainer)
         bifrostLogoView = findViewById(R.id.homeBifrostLogoView)
         bifrostTitleText = findViewById(R.id.homeBifrostTitleText)
-        liveWallpaperVideoPathText = findViewById(R.id.liveWallpaperVideoPathText)
-        liveWallpaperPickVideoButton = findViewById(R.id.liveWallpaperPickVideoButton)
-        liveWallpaperApplyButton = findViewById(R.id.liveWallpaperApplyButton)
-        liveWallpaperPerformanceSpinner = findViewById(R.id.liveWallpaperPerformanceSpinner)
-        liveWallpaperFpsSeekBar = findViewById(R.id.liveWallpaperFpsSeekBar)
-        liveWallpaperFpsValueText = findViewById(R.id.liveWallpaperFpsValueText)
+        bifrostTitleLabel = bifrostTitleText.text.toString()
 
         serviceController = ServiceController(
             activity = this,
@@ -535,7 +669,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupHomeSurface()
-        setupSettingsTabs()
         setupBackNavigationHandler()
         setupAnimationSpinner()
         setupProfileSpinner()
@@ -547,7 +680,6 @@ class MainActivity : AppCompatActivity() {
         setupSaturationBoostSeekBar()
         setupCustomSamplingSwitch()
         setupSingleColorSwitch()
-        setupAmbilightCaptureSwitch()
         setupBreatheWhenChargingSwitch()
         setupChargingSpeedIndicatorSwitch()
         setupFlashWhenReadySwitch()
@@ -556,9 +688,15 @@ class MainActivity : AppCompatActivity() {
         setupAutoStartupSwitch()
         setupPluggedBatteryOverrideSwitch()
         setupPersistentNotificationSwitch()
+        setupAdaptiveBrightnessSwitch()
+        setupExternalApiSwitch()
         setupThorScreenPreference()
-        setupPresetFeature()
+        setupSettingsTabs()
+        setupThemeFeature()
         setupLiveWallpaperFeature()
+        setupColoredLogoSwitch()
+        setupRainbowTitleText()
+        setupPresetFeature()
         updateParameterVisibility()
         enableRainbowBackground(LEDService.isRunning)
         showFirstLaunchAlertIfNeeded()
@@ -641,36 +779,113 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupSettingsTabs() {
-        heimdallTabButton.setOnClickListener { switchSettingsTab(SettingsTab.HEIMDALL) }
-        liveWallpaperTabButton.setOnClickListener { switchSettingsTab(SettingsTab.LIVE_WALLPAPER) }
-        switchSettingsTab(selectedSettingsTab)
+        tabUiSettings.setOnClickListener { setSettingsTab(SettingsTab.UI) }
+        tabBehaviorSettings.setOnClickListener { setSettingsTab(SettingsTab.BEHAVIOR) }
+        tabThemesSettings.setOnClickListener { setSettingsTab(SettingsTab.THEMES) }
+        liveWallpaperTabButton.setOnClickListener { setSettingsTab(SettingsTab.LIVE_WALLPAPER) }
+        setSettingsTab(currentSettingsTab)
     }
 
-    private fun switchSettingsTab(tab: SettingsTab) {
-        selectedSettingsTab = tab
-        val isHeimdall = tab == SettingsTab.HEIMDALL
+    private fun setSettingsTab(tab: SettingsTab) {
+        currentSettingsTab = tab
+        val showingUi = tab == SettingsTab.UI
+        val showingBehavior = tab == SettingsTab.BEHAVIOR
+        val showingThemes = tab == SettingsTab.THEMES
+        val showingLiveWallpaper = tab == SettingsTab.LIVE_WALLPAPER
 
-        heimdallSettingsScroll.visibility = if (isHeimdall) View.VISIBLE else View.GONE
-        liveWallpaperSettingsScroll.visibility = if (isHeimdall) View.GONE else View.VISIBLE
+        modeCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+        colorCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+        animationCard.visibility = if (showingUi) View.VISIBLE else View.GONE
+        performanceCard.visibility = if (showingUi) View.VISIBLE else View.GONE
 
-        val activeColor = ContextCompat.getColor(this, R.color.bifrost_accent)
-        val activeStroke = ContextCompat.getColor(this, R.color.bifrost_accent_light)
-        val inactiveColor = ContextCompat.getColor(this, R.color.bifrost_surface)
-        val inactiveStroke = ContextCompat.getColor(this, R.color.bifrost_accent)
+        settingsSystemStatusCard.visibility = if (showingBehavior) View.VISIBLE else View.GONE
+        appProfileCard.visibility = if (showingBehavior) View.VISIBLE else View.GONE
 
-        heimdallTabButton.backgroundTintList = android.content.res.ColorStateList.valueOf(
-            if (isHeimdall) activeColor else inactiveColor
-        )
-        heimdallTabButton.strokeColor = android.content.res.ColorStateList.valueOf(
-            if (isHeimdall) activeStroke else inactiveStroke
-        )
+        val thorCard = findViewById<View>(R.id.thorSettingsCard)
+        thorCard?.visibility = if (showingBehavior && DeviceInfo.isAynThor) View.VISIBLE else View.GONE
 
-        liveWallpaperTabButton.backgroundTintList = android.content.res.ColorStateList.valueOf(
-            if (isHeimdall) inactiveColor else activeColor
-        )
-        liveWallpaperTabButton.strokeColor = android.content.res.ColorStateList.valueOf(
-            if (isHeimdall) inactiveStroke else activeStroke
-        )
+        themesCard.visibility = if (showingThemes) View.VISIBLE else View.GONE
+
+        liveWallpaperSettingsScroll.visibility = if (showingLiveWallpaper) View.VISIBLE else View.GONE
+
+        updateSettingsTabButtonStyles()
+    }
+
+    private fun updateSettingsTabButtonStyles() {
+        updateSettingsTabButtonState(tabUiSettings, currentSettingsTab == SettingsTab.UI)
+        updateSettingsTabButtonState(tabBehaviorSettings, currentSettingsTab == SettingsTab.BEHAVIOR)
+        updateSettingsTabButtonState(tabThemesSettings, currentSettingsTab == SettingsTab.THEMES)
+        updateSettingsTabButtonState(liveWallpaperTabButton, currentSettingsTab == SettingsTab.LIVE_WALLPAPER)
+    }
+
+    private fun updateSettingsTabButtonState(button: MaterialButton, selected: Boolean) {
+        val selectedTint = ColorStateList.valueOf(selectedUiTheme.accentColor)
+        val unselectedTint = ColorStateList.valueOf(selectedUiTheme.surfaceColor)
+        button.backgroundTintList = if (selected) selectedTint else unselectedTint
+        button.setTextColor(if (selected) Color.WHITE else selectedUiTheme.textColor)
+        button.strokeColor = ColorStateList.valueOf(selectedUiTheme.accentLightColor)
+    }
+
+    private fun setupThemeFeature() {
+        val adapter = ArrayAdapter(this, R.layout.item_spinner_bifrost, builtInThemes.map { it.label })
+        adapter.setDropDownViewResource(R.layout.item_spinner_dropdown_bifrost)
+        themeSpinner.adapter = adapter
+
+        val selectedThemeId = prefs.getString(PREF_SELECTED_UI_THEME, builtInThemes.first().id)
+        val selectedIndex = builtInThemes.indexOfFirst { it.id == selectedThemeId }.takeIf { it >= 0 } ?: 0
+        selectedUiTheme = builtInThemes[selectedIndex]
+        themeSpinner.setSelection(selectedIndex, false)
+        applySelectedTheme(selectedUiTheme, persistSelection = false)
+
+        themeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val theme = builtInThemes.getOrNull(position) ?: return
+                applySelectedTheme(theme, persistSelection = true)
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun applySelectedTheme(theme: UiTheme, persistSelection: Boolean) {
+        selectedUiTheme = theme
+        if (persistSelection) {
+            prefs.edit().putString(PREF_SELECTED_UI_THEME, theme.id).apply()
+        }
+        applyUiTheme(theme)
+    }
+
+    private fun applyUiTheme(theme: UiTheme) {
+        setupStatusBar()
+        findViewById<View>(android.R.id.content)?.setBackgroundColor(theme.backgroundColor)
+        homeContainer.setBackgroundColor(theme.backgroundColor)
+        settingsOverlay.setBackgroundColor(theme.backgroundColor)
+        applyThemeToViewTree(homeContainer, theme)
+        applyThemeToViewTree(settingsOverlay, theme)
+        applyHeaderLogoPreference()
+        updateSettingsTabButtonStyles()
+    }
+
+    private fun applyThemeToViewTree(view: View, theme: UiTheme) {
+        when (view) {
+            is MaterialCardView -> {
+                view.setCardBackgroundColor(theme.cardColor)
+                view.strokeColor = theme.accentColor
+            }
+
+            is MaterialButton -> {
+                view.backgroundTintList = ColorStateList.valueOf(theme.surfaceColor)
+                view.setTextColor(theme.textColor)
+                view.iconTint = ColorStateList.valueOf(theme.textColor)
+                view.strokeColor = ColorStateList.valueOf(theme.accentColor)
+            }
+        }
+
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                applyThemeToViewTree(view.getChildAt(index), theme)
+            }
+        }
     }
 
     private fun setupLiveWallpaperFeature() {
@@ -683,26 +898,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         val modes = LiveWallpaperSettingsManager.PerformanceMode.values().toList()
-        val labels = modes.map { mode ->
-            mode.name.lowercase().replaceFirstChar { it.uppercase() }
-        }
-        val adapter = ArrayAdapter(this, R.layout.item_spinner_bifrost, labels)
+        val modeLabels = modes.map { it.name.replace("_", " ") }
+        val adapter = ArrayAdapter(this, R.layout.item_spinner_bifrost, modeLabels)
         adapter.setDropDownViewResource(R.layout.item_spinner_dropdown_bifrost)
         liveWallpaperPerformanceSpinner.adapter = adapter
 
         val selectedMode = LiveWallpaperSettingsManager.getPerformanceMode(prefs)
         liveWallpaperPerformanceSpinner.setSelection(modes.indexOf(selectedMode).coerceAtLeast(0), false)
         liveWallpaperPerformanceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val mode = modes.getOrNull(position) ?: return
                 LiveWallpaperSettingsManager.setPerformanceMode(prefs, mode)
             }
-
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
@@ -712,13 +919,12 @@ class MainActivity : AppCompatActivity() {
         liveWallpaperFpsValueText.text = currentFps.toString()
         liveWallpaperFpsSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val fps = (progress + 15).coerceIn(15, 120)
+                val fps = progress + 15
                 liveWallpaperFpsValueText.text = fps.toString()
                 if (fromUser) {
                     LiveWallpaperSettingsManager.setTargetFps(prefs, fps)
                 }
             }
-
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
@@ -731,7 +937,7 @@ class MainActivity : AppCompatActivity() {
         liveWallpaperVideoPathText.text = if (uri == null) {
             "No video selected"
         } else {
-            uri.toString()
+            uri.lastPathSegment ?: uri.toString()
         }
     }
 
@@ -739,27 +945,22 @@ class MainActivity : AppCompatActivity() {
         val uri = LiveWallpaperSettingsManager.getVideoUri(prefs)
         if (requireVideo && uri == null) {
             Toast.makeText(this, "Pick a video first", Toast.LENGTH_SHORT).show()
-            switchSettingsTab(SettingsTab.LIVE_WALLPAPER)
-            openSettingsOverlay()
+            setSettingsTab(SettingsTab.LIVE_WALLPAPER)
             return
         }
-
         val component = ComponentName(this, VideoLiveWallpaperService::class.java)
         val targetedIntent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
             putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, component)
         }
-
         val fallbackIntent = Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER)
-        val intentToLaunch = if (targetedIntent.resolveActivity(packageManager) != null) {
-            targetedIntent
-        } else {
-            fallbackIntent
-        }
-
-        runCatching {
-            startActivity(intentToLaunch)
-        }.onFailure {
-            Toast.makeText(this, "Unable to open wallpaper chooser", Toast.LENGTH_SHORT).show()
+        try {
+            startActivity(targetedIntent)
+        } catch (e: Exception) {
+            try {
+                startActivity(fallbackIntent)
+            } catch (e2: Exception) {
+                Toast.makeText(this, "Unable to open wallpaper chooser", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -768,6 +969,68 @@ class MainActivity : AppCompatActivity() {
         return info.packageName == packageName && info.serviceName == VideoLiveWallpaperService::class.java.name
     }
 
+    private fun setupColoredLogoSwitch() {
+        isColoredLogoEnabled = prefs.getBoolean(PREF_COLORED_LOGO_ENABLED, true)
+        coloredLogoSwitch.isChecked = isColoredLogoEnabled
+        applyHeaderLogoPreference()
+
+        coloredLogoSwitch.setOnCheckedChangeListener { _, isChecked ->
+            isColoredLogoEnabled = isChecked
+            prefs.edit().putBoolean(PREF_COLORED_LOGO_ENABLED, isChecked).apply()
+            applyHeaderLogoPreference()
+            if (isChecked) {
+                playBifrostHeaderAnimation()
+            }
+        }
+    }
+
+    private fun setupRainbowTitleText() {
+        if (bifrostTitleLabel.isBlank()) return
+
+        bifrostLogoView.setOnClickListener {
+            if (isColoredLogoEnabled) {
+                playBifrostHeaderAnimation()
+            }
+        }
+        bifrostTitleText.setOnClickListener {
+            if (isColoredLogoEnabled) {
+                playBifrostHeaderAnimation()
+            }
+        }
+
+        if (isColoredLogoEnabled) {
+            playBifrostHeaderAnimation()
+        } else {
+            applyHeaderLogoPreference()
+        }
+    }
+
+    private fun applyHeaderLogoPreference() {
+        if (bifrostTitleLabel.isBlank()) return
+
+        titleIntroAnimator?.cancel()
+        headerSettleAnimator?.cancel()
+        titleIntroAnimator = null
+        headerSettleAnimator = null
+
+        bifrostLogoView.rotation = 0f
+        bifrostLogoView.scaleX = 1f
+        bifrostLogoView.scaleY = 1f
+        bifrostLogoView.translationY = 0f
+        bifrostLogoView.alpha = 1f
+
+        if (isColoredLogoEnabled) {
+            applyWatercolorTitlePhase(
+                bifrostTitleLabel,
+                selectedUiTheme.headerPalette.settlePhaseDegrees
+            )
+            bifrostLogoView.clearColorFilter()
+        } else {
+            bifrostTitleText.text = bifrostTitleLabel
+            bifrostTitleText.setTextColor(selectedUiTheme.textColor)
+            bifrostLogoView.clearColorFilter()
+        }
+    }
 
     private fun cancelPendingCoverFlowSnap() {
         coverFlowSnapRunnable?.let(mainHandler::removeCallbacks)
@@ -887,10 +1150,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestCloseSettingsOverlay() {
-        if (selectedSettingsTab != SettingsTab.HEIMDALL) {
-            closeSettingsOverlay()
-            return
-        }
         if (!::presetController.isInitialized || !presetController.hasUnsavedChangesForSelectedPreset()) {
             closeSettingsOverlay()
             return
@@ -1792,7 +2051,8 @@ class MainActivity : AppCompatActivity() {
         if (isChecked && !appProfileManager.hasUsageStatsPermission(this)) {
             syncAppProfileSwitches(false)
             updateManualPresetSwitchingUi(false)
-            Toast.makeText(this, "Usage access is required and should be granted from startup setup", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Grant usage access to Bifrost in Settings", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
             return
         }
 
@@ -1837,7 +2097,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupStatusBar() {
-        window.statusBarColor = getColor(R.color.bifrost_bg)
+        window.statusBarColor = selectedUiTheme.backgroundColor
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = false
@@ -1859,6 +2119,9 @@ class MainActivity : AppCompatActivity() {
                 enableRainbowBackground(LEDService.isRunning)
             }
 
+            if (::presetController.isInitialized) {
+                presetController.reloadFromPrefs()
+            }
             refreshCoverFlowFromPresets()
         }
         mainHandler.postDelayed(resumeStateSyncRunnable!!, 100)
@@ -1907,15 +2170,58 @@ class MainActivity : AppCompatActivity() {
         rainbowDrawable = null
     }
 
+    private fun normalizedCyclePhase(phaseDegrees: Float): Float {
+        return ((phaseDegrees % 360f) + 360f) % 360f / 360f
+    }
+
+    private fun computeIntroThemeColor(index: Int, maxIndex: Int, phaseDegrees: Float): Int {
+        val palette = selectedUiTheme.headerPalette
+        val phase = normalizedCyclePhase(phaseDegrees)
+        val letterProgress = index / maxIndex.toFloat()
+        val hueWindow = palette.introHueSpan * ((phase + letterProgress) % 1f)
+        val hue = (palette.introHueStart + hueWindow) % 360f
+        return Color.HSVToColor(floatArrayOf(hue, palette.introSaturation, palette.introValue))
+    }
+
+    private fun computeSettleThemeColor(index: Int, maxIndex: Int, phaseDegrees: Float): Int {
+        val palette = selectedUiTheme.headerPalette
+        val phase = normalizedCyclePhase(phaseDegrees)
+        val letterProgress = index / maxIndex.toFloat()
+        val hueProgress = (letterProgress + phase) % 1f
+        val hue = (
+            palette.settleHueStart +
+                palette.settleHueSpan * hueProgress +
+                palette.settleHueWobbleAmplitude * sin(letterProgress * PI).toFloat()
+            ) % 360f
+        val saturation = (
+            palette.settleSaturationBase +
+                palette.settleSaturationWave * ((sin(letterProgress * PI * 3.0) + 1.0) / 2.0).toFloat()
+            ).coerceIn(0f, 1f)
+        val value = (
+            palette.settleValueBase +
+                palette.settleValueWave * ((cos(letterProgress * PI * 2.0) + 1.0) / 2.0).toFloat()
+            ).coerceIn(0f, 1f)
+        val alpha = (
+            palette.settleAlphaBase +
+                palette.settleAlphaWave * ((sin(letterProgress * PI * 2.5) + 1.0) / 2.0)
+            ).roundToInt().coerceIn(0, 255)
+        return Color.HSVToColor(alpha, floatArrayOf(hue, saturation, value))
+    }
+
     private fun applyRainbowTitlePhase(text: String, phaseDegrees: Float) {
+        if (!isColoredLogoEnabled) {
+            bifrostTitleText.text = text
+            bifrostTitleText.setTextColor(selectedUiTheme.textColor)
+            return
+        }
+
         val rainbowText = SpannableString(text)
         val maxIndex = (text.length - 1).coerceAtLeast(1)
 
         text.indices.forEach { index ->
             if (text[index].isWhitespace()) return@forEach
 
-            val hue = (phaseDegrees + (360f * index / maxIndex)) % 360f
-            val color = Color.HSVToColor(floatArrayOf(hue, 0.82f, 1f))
+            val color = computeIntroThemeColor(index, maxIndex, phaseDegrees)
             rainbowText.setSpan(
                 ForegroundColorSpan(color),
                 index,
@@ -1927,8 +2233,31 @@ class MainActivity : AppCompatActivity() {
         bifrostTitleText.text = rainbowText
     }
 
+    private fun applyWatercolorTitlePhase(text: String, phaseDegrees: Float) {
+        val watercolorText = SpannableString(text)
+        val maxIndex = (text.length - 1).coerceAtLeast(1)
+
+        text.indices.forEach { index ->
+            if (text[index].isWhitespace()) return@forEach
+
+            val color = computeSettleThemeColor(index, maxIndex, phaseDegrees)
+            watercolorText.setSpan(
+                ForegroundColorSpan(color),
+                index,
+                index + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+
+        bifrostTitleText.text = watercolorText
+    }
+
     private fun playBifrostHeaderAnimation() {
         if (bifrostTitleLabel.isBlank()) return
+        if (!isColoredLogoEnabled) {
+            applyHeaderLogoPreference()
+            return
+        }
 
         titleIntroAnimator?.cancel()
         headerSettleAnimator?.cancel()
@@ -1976,8 +2305,16 @@ class MainActivity : AppCompatActivity() {
     private fun resetBifrostHeaderAnimationState() {
         if (bifrostTitleLabel.isBlank()) return
 
-        bifrostTitleText.text = bifrostTitleLabel
-        bifrostTitleText.setTextColor(ContextCompat.getColor(this, R.color.bifrost_text))
+        if (isColoredLogoEnabled) {
+            applyWatercolorTitlePhase(
+                bifrostTitleLabel,
+                selectedUiTheme.headerPalette.settlePhaseDegrees
+            )
+        } else {
+            bifrostTitleText.text = bifrostTitleLabel
+            bifrostTitleText.setTextColor(selectedUiTheme.textColor)
+        }
+
         bifrostLogoView.rotation = 0f
         bifrostLogoView.scaleX = 1f
         bifrostLogoView.scaleY = 1f
@@ -2001,7 +2338,7 @@ class MainActivity : AppCompatActivity() {
             .setDuration(400L)
             .setInterpolator(DecelerateInterpolator())
             .withEndAction {
-                resetBifrostHeaderAnimationState()
+                applyHeaderLogoPreference()
             }
             .start()
     }
@@ -2029,7 +2366,7 @@ class MainActivity : AppCompatActivity() {
                     updateParameterVisibility()
 
                     if (wasRunning) {
-                        if (requiresProjectionToken(selectedAnimationType)) {
+                        if (selectedAnimationType.needsMediaProjection) {
                             if (mediaProjectionResultCode == null || mediaProjectionData == null) {
                                 checkRagnarokWarningAndRestart(true)
                             } else {
@@ -2068,7 +2405,7 @@ class MainActivity : AppCompatActivity() {
                     val newProfile = profilesList[position]
 
                     if (newProfile == PerformanceProfile.RAGNAROK &&
-                        requiresProjectionToken(selectedAnimationType)
+                        selectedAnimationType.needsMediaProjection
                     ) {
                         val presetName = getSelectedPresetName()
                         val preset = presetController.getPresets()
@@ -2335,27 +2672,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupAmbilightCaptureSwitch() {
-        ambilightUseMediaProjectionSwitch.isChecked = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
-        ambilightUseMediaProjectionSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, isChecked).apply()
-            if (!LEDService.isRunning || serviceController.isServiceTransitioning) return@setOnCheckedChangeListener
-            if (isChecked) {
-                if (mediaProjectionResultCode != null && mediaProjectionData != null) {
-                    // Already have a token — restart with it (requiresProjectionToken now returns true so it's included)
-                    serviceController.restartDebounced { createLedServiceIntent() }
-                } else {
-                    // No token yet — request permission. screenCaptureLauncher will call
-                    // startDebounced { createLedServiceIntent() } which now includes the token.
-                    handleMediaProjectionRequirement()
-                }
-            } else {
-                // Switching back to accessibility mode — restart without MediaProjection
-                serviceController.restartDebounced { createLedServiceIntent() }
-            }
-        }
-    }
-
     private fun setupBreatheWhenChargingSwitch() {
         breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
         breatheWhenChargingSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -2421,11 +2737,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupPersistentNotificationSwitch() {
-        selectedPersistentNotification = true
-        prefs.edit().putBoolean(PREF_PERSISTENT_NOTIFICATION, true).apply()
-        persistentNotificationSwitch.isChecked = true
-        persistentNotificationSwitch.isEnabled = false
-        persistentNotificationSwitch.alpha = 0.55f
+        selectedPersistentNotification =
+            prefs.getBoolean(PREF_PERSISTENT_NOTIFICATION, true)
+        persistentNotificationSwitch.isChecked = selectedPersistentNotification
+
+        persistentNotificationSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedPersistentNotification = isChecked
+            prefs.edit().putBoolean(PREF_PERSISTENT_NOTIFICATION, isChecked).apply()
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupAdaptiveBrightnessSwitch() {
+        selectedAdaptiveBrightness = prefs.getBoolean(PREF_ADAPTIVE_BRIGHTNESS, false)
+        adaptiveBrightnessSwitch.isChecked = selectedAdaptiveBrightness
+
+        adaptiveBrightnessSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedAdaptiveBrightness = isChecked
+            prefs.edit().putBoolean(PREF_ADAPTIVE_BRIGHTNESS, isChecked).apply()
+
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun setupExternalApiSwitch() {
+        externalApiSwitch.isChecked = ExternalApiGate.isMasterEnabled(prefs)
+        externalApiSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(ExternalApiGate.PREF_ENABLED, isChecked).apply()
+            // Enabling requires the service to survive activity close, so next
+            // start picks up the OR'd allowBackgroundRun. If running, restart
+            // so the new flag takes effect without waiting for the user to
+            // stop/start manually.
+            if (isChecked && LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                serviceController.restartDebounced(needsMediaProjectionCheck = false) {
+                    createLedServiceIntent()
+                }
+            }
+        }
     }
 
     private fun setupThorScreenPreference() {
@@ -2450,7 +2803,7 @@ class MainActivity : AppCompatActivity() {
             // Invalidate cached screen-capture grant so next start targets the new display
             mediaProjectionResultCode = null
             mediaProjectionData = null
-            if (LEDService.isRunning && requiresProjectionToken(selectedAnimationType)) {
+            if (LEDService.isRunning && selectedAnimationType.needsMediaProjection) {
                 serviceController.restartDebounced(needsMediaProjectionCheck = true) { createLedServiceIntent() }
             }
         }
@@ -2500,54 +2853,13 @@ class MainActivity : AppCompatActivity() {
     private fun maybeAutoStartHeimdallOnLaunch() {
         if (!HeimdallStartupManager.isAutoStartEnabled(prefs) || LEDService.isRunning) return
         if (!checkNotificationPermission()) return
-        if (requiresProjectionToken(selectedAnimationType) &&
+        if (selectedAnimationType.needsMediaProjection &&
             (mediaProjectionResultCode == null || mediaProjectionData == null)
         ) {
-            showProjectionPermissionRequiredNotification()
             return
         }
 
         serviceToggle.isChecked = true
-    }
-
-    private fun showProjectionPermissionRequiredNotification() {
-        createAutoStartPermissionChannelIfNeeded()
-
-        val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            AUTOSTART_PERMISSION_NOTIFICATION_ID,
-            openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, AUTOSTART_PERMISSION_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_small)
-            .setContentTitle("Permission needed for auto-start")
-            .setContentText("Tap to grant Android capture consent for internal audio animations.")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .build()
-
-        val hasPostNotificationsPermission =
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED
-        if (!hasPostNotificationsPermission) return
-        NotificationManagerCompat.from(this).notify(AUTOSTART_PERMISSION_NOTIFICATION_ID, notification)
-    }
-
-    private fun createAutoStartPermissionChannelIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            AUTOSTART_PERMISSION_CHANNEL_ID,
-            "Bifrost auto-start permissions",
-            NotificationManager.IMPORTANCE_HIGH
-        )
-        manager.createNotificationChannel(channel)
     }
 
     private fun setupAppProfileFeature() {
@@ -2807,7 +3119,7 @@ class MainActivity : AppCompatActivity() {
                     if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
                         // Just keep the service running; the periodic check will
                         // resolve the correct preset.
-                    } else if (requiresProjectionToken(selectedAnimationType)) {
+                    } else if (selectedAnimationType.needsMediaProjection) {
                         if (mediaProjectionResultCode == null || mediaProjectionData == null) {
                             handleMediaProjectionRequirement()
                         } else {
@@ -2833,12 +3145,35 @@ class MainActivity : AppCompatActivity() {
         syncAppProfileDefaultSwitch()
 
         exportPresetsButton.setOnClickListener {
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            exportPresetsLauncher.launch("bifrost_presets_$timestamp.bifrost_preset")
+            showBackupCategoryDialog(
+                title = "BACKUP CATEGORIES",
+                subtitle = "Choose what to include in the backup",
+                confirmLabel = "BACKUP"
+            ) { options ->
+                pendingBackupExportOptions = options
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                exportPresetsLauncher.launch("bifrost_backup_$timestamp.bifrost_backup")
+            }
         }
 
         importPresetsButton.setOnClickListener {
-            importPresetsLauncher.launch(arrayOf("*/*"))
+            showBackupCategoryDialog(
+                title = "RESTORE CATEGORIES",
+                subtitle = "Choose what to restore from archive",
+                confirmLabel = "RESTORE"
+            ) { options ->
+                pendingBackupImportOptions = options
+                importPresetsLauncher.launch(arrayOf("*/*"))
+            }
+        }
+
+        exportThemeButton.setOnClickListener {
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            exportThemeLauncher.launch("bifrost_theme_$timestamp.bifrost_theme")
+        }
+
+        importThemeButton.setOnClickListener {
+            importThemeLauncher.launch(arrayOf("*/*"))
         }
 
         // If the app switching feature is already enabled, start syncing the UI after presets load.
@@ -2847,23 +3182,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun exportPresetBundle(uri: Uri) {
+    private fun exportPresetBundle(uri: Uri, options: BackupArchiveTransfer.CategoryOptions) {
         val result = runCatching {
-            PresetArchiveTransfer.exportToUri(
-                context = this,
-                uri = uri,
-                presets = presetController.getPresets(),
-                mappings = appProfileManager.getMappings()
-            )
+            BackupArchiveTransfer.exportToUri(context = this, uri = uri, options = options)
         }.getOrElse {
-            Toast.makeText(this, "Preset export failed", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Backup export failed", Toast.LENGTH_LONG).show()
             return
         }
 
         if (result.warnings.isEmpty()) {
             Toast.makeText(
                 this,
-                "Exported ${result.presetCount} presets (${result.iconCount} icons)",
+                "Backup saved (${result.preferenceCount} settings, ${result.iconCount} images)",
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -2872,8 +3202,8 @@ class MainActivity : AppCompatActivity() {
         val warningText = result.warnings.joinToString("\n")
         BifrostAlertDialog().show(
             activity = this,
-            title = "EXPORT COMPLETED",
-            subtitle = "Exported ${result.presetCount} presets with ${result.warnings.size} warning(s)",
+            title = "BACKUP COMPLETED",
+            subtitle = "Saved backup with ${result.warnings.size} warning(s)",
             body = warningText,
             positiveLabelResId = R.string.alert_action_ok,
             negativeLabelResId = null,
@@ -2882,15 +3212,64 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun importPresetBundle(uri: Uri) {
-        val result = runCatching {
-            PresetArchiveTransfer.importFromUri(this, uri)
+    private fun importPresetBundle(uri: Uri, options: BackupArchiveTransfer.CategoryOptions) {
+        val backupResult = runCatching {
+            BackupArchiveTransfer.importFromUri(this, uri, options = options)
         }.getOrElse {
             BifrostAlertDialog().show(
                 activity = this,
                 title = "IMPORT FAILED",
                 subtitle = "Selected file could not be imported",
                 body = it.message,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        if (backupResult.errors.isEmpty()) {
+            val categorySummary = describeBackupCategories(backupResult.appliedOptions)
+            val warningText = if (backupResult.warnings.isEmpty()) {
+                "Categories: $categorySummary\n\nRestore completed successfully."
+            } else {
+                "Categories: $categorySummary\n\nWarnings:\n${backupResult.warnings.joinToString("\n")}"
+            }
+
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "RESTORE COMPLETED",
+                subtitle = "Restored ${backupResult.preferenceCount} settings and ${backupResult.iconCount} images",
+                body = warningText,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {
+                    recreate()
+                }
+            )
+            return
+        }
+
+        // Fallback: allow importing legacy preset bundles through the same picker.
+        val result = runCatching {
+            PresetArchiveTransfer.importFromUri(this, uri)
+        }.getOrElse {
+            val mergedErrorText = buildString {
+                append(backupResult.errors.joinToString("\n"))
+                if (isNotEmpty()) append("\n\n")
+                append("Legacy preset import failed")
+                it.message?.let { message ->
+                    append(": ")
+                    append(message)
+                }
+            }
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "IMPORT FAILED",
+                subtitle = "Selected file is not a valid backup archive",
+                body = mergedErrorText,
                 positiveLabelResId = R.string.alert_action_ok,
                 negativeLabelResId = null,
                 cancelable = true,
@@ -2919,6 +3298,45 @@ class MainActivity : AppCompatActivity() {
                 applyImportedBundle(result, replaceEverything = false)
             }
         )
+    }
+
+    private fun showBackupCategoryDialog(
+        title: String,
+        subtitle: String,
+        confirmLabel: String,
+        onConfirm: (BackupArchiveTransfer.CategoryOptions) -> Unit
+    ) {
+        val labels = arrayOf("Themes", "Profiles", "Images")
+        val checked = booleanArrayOf(true, true, true)
+
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(subtitle)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton(confirmLabel) { _, _ ->
+                val options = BackupArchiveTransfer.CategoryOptions(
+                    themes = checked[0],
+                    profiles = checked[1],
+                    images = checked[2]
+                )
+                if (!options.hasAtLeastOneCategory()) {
+                    Toast.makeText(this, "Select at least one category", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                onConfirm(options)
+            }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    private fun describeBackupCategories(options: BackupArchiveTransfer.CategoryOptions): String {
+        val selected = mutableListOf<String>()
+        if (options.themes) selected += "Themes"
+        if (options.profiles) selected += "Profiles"
+        if (options.images) selected += "Images"
+        return if (selected.isEmpty()) "None" else selected.joinToString(" + ")
     }
 
     private fun applyImportedBundle(
@@ -2954,6 +3372,118 @@ class MainActivity : AppCompatActivity() {
         }
 
         showImportReport(result)
+    }
+
+    private fun exportThemeBundle(uri: Uri) {
+        val result = runCatching {
+            ThemeArchiveTransfer.exportToUri(
+                context = this,
+                uri = uri,
+                themeId = selectedUiTheme.id,
+                coloredLogoEnabled = isColoredLogoEnabled
+            )
+        }.getOrElse {
+            Toast.makeText(this, "Theme export failed", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (result.warnings.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Theme saved (${selectedUiTheme.label})",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = "THEME EXPORT COMPLETED",
+            subtitle = "Saved ${selectedUiTheme.label} with ${result.warnings.size} warning(s)",
+            body = result.warnings.joinToString("\n"),
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {}
+        )
+    }
+
+    private fun importThemeBundle(uri: Uri) {
+        val result = runCatching {
+            ThemeArchiveTransfer.importFromUri(this, uri)
+        }.getOrElse {
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "THEME IMPORT FAILED",
+                subtitle = "Selected file could not be imported",
+                body = it.message,
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        val importedTheme = builtInThemes.firstOrNull { it.id == result.themeId }
+        val errors = result.errors.toMutableList()
+        if (importedTheme == null) {
+            errors += if (result.themeId.isNullOrBlank()) {
+                "Theme bundle does not contain a supported theme."
+            } else {
+                "Theme '${result.themeId}' is not available in this build."
+            }
+        }
+
+        if (errors.isNotEmpty()) {
+            BifrostAlertDialog().show(
+                activity = this,
+                title = "THEME IMPORT FAILED",
+                subtitle = "Selected file is not a valid supported theme bundle",
+                body = (errors + result.warnings).joinToString("\n"),
+                positiveLabelResId = R.string.alert_action_ok,
+                negativeLabelResId = null,
+                cancelable = true,
+                onConfirm = {}
+            )
+            return
+        }
+
+        applyImportedTheme(importedTheme!!, result.coloredLogoEnabled)
+
+        val body = if (result.warnings.isEmpty()) {
+            "Theme applied successfully."
+        } else {
+            "Warnings:\n${result.warnings.joinToString("\n")}"
+        }
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = "THEME IMPORT COMPLETED",
+            subtitle = "Applied ${importedTheme.label}",
+            body = body,
+            positiveLabelResId = R.string.alert_action_ok,
+            negativeLabelResId = null,
+            cancelable = true,
+            onConfirm = {}
+        )
+    }
+
+    private fun applyImportedTheme(theme: UiTheme, coloredLogoEnabled: Boolean) {
+        prefs.edit()
+            .putString(PREF_SELECTED_UI_THEME, theme.id)
+            .putBoolean(PREF_COLORED_LOGO_ENABLED, coloredLogoEnabled)
+            .apply()
+
+        isColoredLogoEnabled = coloredLogoEnabled
+        val themeIndex = builtInThemes.indexOfFirst { it.id == theme.id }.takeIf { it >= 0 } ?: 0
+        themeSpinner.setSelection(themeIndex, false)
+        applySelectedTheme(theme, persistSelection = false)
+        if (coloredLogoSwitch.isChecked != coloredLogoEnabled) {
+            coloredLogoSwitch.isChecked = coloredLogoEnabled
+        } else {
+            applyHeaderLogoPreference()
+        }
     }
 
     private fun showImportReport(result: PresetArchiveTransfer.ImportResult) {
@@ -2993,7 +3523,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateParameterVisibility() {
         val needsColor = selectedAnimationType.needsColorSelection
-        val needsProfile = requiresProjectionToken(selectedAnimationType)
+        val needsProfile = selectedAnimationType.needsMediaProjection
         val needsSpeed = selectedAnimationType.supportsSpeed
         val needsSmoothness = selectedAnimationType.supportsSmoothness
         val needsSensitivity = selectedAnimationType.supportsAudioSensitivity
@@ -3064,10 +3594,6 @@ class MainActivity : AppCompatActivity() {
             singleColorSwitch.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
             bothSticksSameColor.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
 
-            val needsAmbilightCapture = selectedAnimationType == LedAnimationType.AMBILIGHT
-            val ambilightCaptureRow = findViewById<View>(R.id.ambilightCaptureRow)
-            ambilightCaptureRow?.visibility = if (needsAmbilightCapture) View.VISIBLE else View.GONE
-
             breatheWhenChargingRow?.visibility = if (needsBreatheWhenCharging) View.VISIBLE else View.GONE
             chargingSpeedIndicatorRow?.visibility = if (needsChargingSpeedIndicator) View.VISIBLE else View.GONE
             flashWhenReadyRow?.visibility = if (needsFlashWhenReady) View.VISIBLE else View.GONE
@@ -3106,14 +3632,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkRagnarokWarningAndRestart(needsMediaProjectionCheck: Boolean = false) {
-        if (!checkRequiredPermissionsForSelection(selectedAnimationType)) return
-
         val presetName = getSelectedPresetName()
         val preset = presetController.getPresets().firstOrNull { it.name == presetName }
 
         val mustShow =
             selectedProfile == PerformanceProfile.RAGNAROK &&
-                    requiresProjectionToken(selectedAnimationType) &&
+                    selectedAnimationType.needsMediaProjection &&
                     preset?.ragnarokAccepted != true
 
         if (mustShow) {
@@ -3147,19 +3671,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleStartWithCurrentSelection() {
-        Log.i(TAG, "handleStartWithCurrentSelection: type=$selectedAnimationType")
+        if (!checkNotificationPermission()) {
+            requestNotificationPermission()
+            return
+        }
+        // When app-profile mode is active the animation is determined by
+        // foreground-app mappings, not the UI selection.  Skip the media-
+        // projection gate – if the resolved preset needs it later, the
+        // service will show a notification prompting the user to grant it.
         if (appProfileManager.isEnabled) {
-            if (!checkNotificationPermission()) {
-                requestNotificationPermission()
-                return
-            }
             serviceController.startDebounced { createLedServiceIntent() }
             return
         }
-
-        if (!checkRequiredPermissionsForSelection(selectedAnimationType)) return
-
-        if (requiresProjectionToken(selectedAnimationType)) {
+        if (selectedAnimationType.needsMediaProjection) {
             if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                 serviceController.startDebounced { createLedServiceIntent() }
             } else {
@@ -3186,50 +3710,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestScreenCapturePermission() {
-        Toast.makeText(
-            this,
-            "Android requires a capture consent popup for internal audio capture",
-            Toast.LENGTH_SHORT
-        ).show()
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
-    }
-
-    private fun requiresProjectionToken(type: LedAnimationType): Boolean {
-        if (type == LedAnimationType.AMBILIGHT) {
-            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
-        }
-        return type.needsMediaProjection
-    }
-
-    private fun needsAccessibilityPermission(type: LedAnimationType): Boolean {
-        if (type == LedAnimationType.AMBILIGHT) {
-            return !prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
-        }
-        return type == LedAnimationType.AMBIAURORA
-    }
-
-    private fun checkRequiredPermissionsForSelection(type: LedAnimationType): Boolean {
-        Log.i(TAG, "checkRequiredPermissionsForSelection: type=$type")
-        if (!checkNotificationPermission()) {
-            Log.w(TAG, "checkRequiredPermissionsForSelection: notifications not granted")
-            requestNotificationPermission()
-            return false
-        }
-
-        if (needsAccessibilityPermission(type) && !BifrostAccessibilityService.isEnabled(this)) {
-            Log.w(TAG, "checkRequiredPermissionsForSelection: accessibility not enabled")
-            Toast.makeText(this, "Enable Accessibility for Ambilight features", Toast.LENGTH_LONG).show()
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            return false
-        }
-
-        if (requiresProjectionToken(type) && (mediaProjectionResultCode == null || mediaProjectionData == null)) {
-            Log.w(TAG, "checkRequiredPermissionsForSelection: media projection missing")
-            requestScreenCapturePermission()
-            return false
-        }
-
-        return true
     }
 
     private fun getAmbilightTargetDisplayId(): Int {
@@ -3268,10 +3749,15 @@ class MainActivity : AppCompatActivity() {
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,
                 selectedPersistentNotification
             )
+            putExtra(
+                LEDService.EXTRA_ADAPTIVE_BRIGHTNESS,
+                selectedAdaptiveBrightness
+            )
             putExtra("ambilightDisplayId", getAmbilightTargetDisplayId())
             putExtra(
                 LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
-                HeimdallStartupManager.isAutoStartEnabled(prefs)
+                HeimdallStartupManager.isAutoStartEnabled(prefs) ||
+                    ExternalApiGate.isMasterEnabled(prefs)
             )
             // When app profile mode is active, always include MP data if available,
             // regardless of the UI-selected animation type.  The actual animation is
@@ -3280,7 +3766,7 @@ class MainActivity : AppCompatActivity() {
             val shouldIncludeMP = if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
                 mediaProjectionResultCode != null && mediaProjectionData != null
             } else {
-                requiresProjectionToken(selectedAnimationType)
+                selectedAnimationType.needsMediaProjection
             }
             if (shouldIncludeMP) {
                 putExtra("resultCode", mediaProjectionResultCode)
@@ -3318,6 +3804,10 @@ class MainActivity : AppCompatActivity() {
             putExtra(
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,
                 selectedPersistentNotification
+            )
+            putExtra(
+                LEDService.EXTRA_ADAPTIVE_BRIGHTNESS,
+                selectedAdaptiveBrightness
             )
         }
         startService(intent)
@@ -3406,7 +3896,4 @@ class MainActivity : AppCompatActivity() {
         return runCatching { getString(resId) }.getOrDefault(fallback)
     }
 }
-
-
-
 
