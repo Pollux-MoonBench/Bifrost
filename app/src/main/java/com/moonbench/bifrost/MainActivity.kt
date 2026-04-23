@@ -87,6 +87,7 @@ import kotlin.math.sin
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -241,6 +242,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_STARTUP_GUIDE_DONE = "startup_guide_done"
         private const val PREF_LIVE_WALLPAPER_RESTORE_SETTINGS = "live_wallpaper_restore_settings"
         private const val PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS = "live_wallpaper_apply_in_progress"
+        private const val LIVE_WALLPAPER_LOCAL_VIDEO_FILE = "live_wallpaper_video.mp4"
         private const val LIVE_WALLPAPER_STATE_SYNC_MAX_RETRIES = 12
         private const val LIVE_WALLPAPER_STATE_SYNC_DELAY_MS = 250L
         private const val AUTOSTART_PERMISSION_CHANNEL_ID = "bifrost_autostart_permission"
@@ -524,8 +526,12 @@ class MainActivity : AppCompatActivity() {
     private val liveWallpaperVideoPickerLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
             if (uri == null) return@registerForActivityResult
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            LiveWallpaperSettingsManager.setVideoUri(prefs, uri)
+            val localUri = importLiveWallpaperVideoToAppStorage(uri)
+            if (localUri == null) {
+                Toast.makeText(this, "Unable to import selected video", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            LiveWallpaperSettingsManager.setVideoUri(prefs, localUri)
             refreshLiveWallpaperVideoSummary()
             Toast.makeText(this, "Live wallpaper video updated", Toast.LENGTH_SHORT).show()
         }
@@ -1021,6 +1027,7 @@ class MainActivity : AppCompatActivity() {
         }.isSuccess
 
         LiveWallpaperSettingsManager.clearVideoUri(prefs)
+        deleteLocalLiveWallpaperVideoIfExists()
         LiveWallpaperSettingsManager.setWallpaperApplied(prefs, false)
         prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS, false).apply()
         prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_RESTORE_SETTINGS, false).apply()
@@ -1031,6 +1038,28 @@ class MainActivity : AppCompatActivity() {
             runCatching {
                 startActivity(Intent(Intent.ACTION_SET_WALLPAPER))
             }
+        }
+    }
+
+    private fun importLiveWallpaperVideoToAppStorage(sourceUri: Uri): Uri? {
+        val targetFile = File(filesDir, LIVE_WALLPAPER_LOCAL_VIDEO_FILE)
+        return runCatching {
+            contentResolver.openInputStream(sourceUri).use { input ->
+                requireNotNull(input) { "Unable to open selected video" }
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Uri.fromFile(targetFile)
+        }.onFailure {
+            runCatching { targetFile.delete() }
+        }.getOrNull()
+    }
+
+    private fun deleteLocalLiveWallpaperVideoIfExists() {
+        val file = File(filesDir, LIVE_WALLPAPER_LOCAL_VIDEO_FILE)
+        if (file.exists()) {
+            runCatching { file.delete() }
         }
     }
 
