@@ -219,6 +219,7 @@
     </LinearLayout>
 
     <ScrollView
+        android:id="@+id/mainSettingsScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -1472,7 +1473,6 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="14dp"
                         android:text="VIDEO FILE"
                         android:textColor="@color/bifrost_text_secondary"
                         android:textSize="10sp"
@@ -1523,6 +1523,19 @@
                             app:strokeWidth="1dp"
                             app:strokeColor="@color/bifrost_accent" />
                     </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/liveWallpaperRemoveButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:text="REMOVE WALLPAPER"
+                        android:textSize="10sp"
+                        android:textColor="@color/bifrost_text"
+                        android:backgroundTint="@color/bifrost_surface"
+                        app:cornerRadius="10dp"
+                        app:strokeWidth="1dp"
+                        app:strokeColor="@color/bifrost_accent" />
 
                     <TextView
                         android:layout_width="wrap_content"

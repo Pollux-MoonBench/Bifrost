@@ -8,6 +8,7 @@ object LiveWallpaperSettingsManager {
     private const val PREF_KEY_TARGET_FPS = "live_wallpaper_target_fps"
     private const val PREF_KEY_PERFORMANCE_MODE = "live_wallpaper_performance_mode"
     private const val PREF_KEY_AUTO_START = "live_wallpaper_auto_start"
+    private const val PREF_KEY_IS_APPLIED = "live_wallpaper_is_applied"
 
     const val DEFAULT_TARGET_FPS = 30
 
@@ -24,6 +25,10 @@ object LiveWallpaperSettingsManager {
 
     fun setVideoUri(prefs: SharedPreferences, uri: Uri) {
         prefs.edit().putString(PREF_KEY_VIDEO_URI, uri.toString()).apply()
+    }
+
+    fun clearVideoUri(prefs: SharedPreferences) {
+        prefs.edit().remove(PREF_KEY_VIDEO_URI).apply()
     }
 
     fun getTargetFps(prefs: SharedPreferences): Int {
@@ -51,5 +56,12 @@ object LiveWallpaperSettingsManager {
     fun setAutoStartEnabled(prefs: SharedPreferences, enabled: Boolean) {
         prefs.edit().putBoolean(PREF_KEY_AUTO_START, enabled).apply()
     }
-}
 
+    fun isWallpaperApplied(prefs: SharedPreferences): Boolean {
+        return prefs.getBoolean(PREF_KEY_IS_APPLIED, false)
+    }
+
+    fun setWallpaperApplied(prefs: SharedPreferences, applied: Boolean) {
+        prefs.edit().putBoolean(PREF_KEY_IS_APPLIED, applied).apply()
+    }
+}

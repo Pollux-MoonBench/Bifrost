@@ -19,18 +19,41 @@ class VideoLiveWallpaperService : WallpaperService() {
         private val prefs = getSharedPreferences("bifrost_prefs", Context.MODE_PRIVATE)
         private var mediaPlayer: MediaPlayer? = null
         private var isVisible = false
+        private var isPlayerPrepared = false
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             prefs.registerOnSharedPreferenceChangeListener(this)
+            if (!isPreview) {
+                prefs.edit().putBoolean("live_wallpaper_is_applied", true).commit()
+            }
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
             isVisible = visible
+            if (visible && !isPreview) {
+                prefs.edit().putBoolean("live_wallpaper_is_applied", true).commit()
+            }
             if (visible) {
-                startPlaybackIfPossible()
+                if (mediaPlayer == null) {
+                    startPlaybackIfPossible()
+                    return
+                }
+                if (isPlayerPrepared) {
+                    runCatching {
+                        if (mediaPlayer?.isPlaying == false) {
+                            mediaPlayer?.start()
+                        }
+                    }
+                }
             } else {
-                mediaPlayer?.pause()
+                if (isPlayerPrepared) {
+                    runCatching {
+                        if (mediaPlayer?.isPlaying == true) {
+                            mediaPlayer?.pause()
+                        }
+                    }
+                }
             }
         }
 
@@ -64,9 +87,11 @@ class VideoLiveWallpaperService : WallpaperService() {
             val videoUri = LiveWallpaperSettingsManager.getVideoUri(prefs) ?: return
 
             if (mediaPlayer != null && !forceRecreate) {
-                runCatching {
-                    if (isVisible && mediaPlayer?.isPlaying == false) {
-                        mediaPlayer?.start()
+                if (isVisible && isPlayerPrepared) {
+                    runCatching {
+                        if (mediaPlayer?.isPlaying == false) {
+                            mediaPlayer?.start()
+                        }
                     }
                 }
                 return
@@ -79,6 +104,7 @@ class VideoLiveWallpaperService : WallpaperService() {
             applyFrameRate(holder, fps, mode)
 
             mediaPlayer = MediaPlayer().apply {
+                isPlayerPrepared = false
                 isLooping = true
                 setVolume(0f, 0f)
                 // `setDisplay` calls `setKeepScreenOn` on SurfaceHolder, unsupported for wallpapers.
@@ -86,6 +112,7 @@ class VideoLiveWallpaperService : WallpaperService() {
                 setScreenOnWhilePlaying(false)
 
                 setOnPreparedListener {
+                    isPlayerPrepared = true
                     runCatching {
                         it.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING)
                     }.onFailure { scalingError ->
@@ -96,7 +123,9 @@ class VideoLiveWallpaperService : WallpaperService() {
                     }
                 }
                 setOnErrorListener { _, what, extra ->
+                    isPlayerPrepared = false
                     Log.e(TAG, "MediaPlayer error what=$what extra=$extra")
+                    releasePlayer()
                     true
                 }
 
@@ -138,11 +167,16 @@ class VideoLiveWallpaperService : WallpaperService() {
         }
 
         private fun releasePlayer() {
-            mediaPlayer?.runCatching {
-                stop()
-            }
-            mediaPlayer?.release()
+            val player = mediaPlayer ?: return
             mediaPlayer = null
+            isPlayerPrepared = false
+            runCatching {
+                if (player.isPlaying) {
+                    player.stop()
+                }
+            }
+            runCatching { player.reset() }
+            player.release()
         }
     }
 

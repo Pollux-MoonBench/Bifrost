@@ -10,6 +10,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.WallpaperManager
 import android.content.ComponentName
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -145,10 +146,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabBehaviorSettings: MaterialButton
     private lateinit var tabThemesSettings: MaterialButton
     private lateinit var liveWallpaperTabButton: MaterialButton
+    private lateinit var mainSettingsScroll: ScrollView
     private lateinit var liveWallpaperSettingsScroll: ScrollView
     private lateinit var liveWallpaperVideoPathText: TextView
     private lateinit var liveWallpaperPickVideoButton: MaterialButton
     private lateinit var liveWallpaperApplyButton: MaterialButton
+    private lateinit var liveWallpaperRemoveButton: MaterialButton
     private lateinit var liveWallpaperPerformanceSpinner: Spinner
     private lateinit var liveWallpaperFpsSeekBar: SeekBar
     private lateinit var liveWallpaperFpsValueText: TextView
@@ -239,6 +242,10 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_SELECTED_UI_THEME = "selected_ui_theme"
         private const val PREF_COLORED_LOGO_ENABLED = "colored_logo_enabled"
         private const val PREF_STARTUP_GUIDE_DONE = "startup_guide_done"
+        private const val PREF_LIVE_WALLPAPER_RESTORE_SETTINGS = "live_wallpaper_restore_settings"
+        private const val PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS = "live_wallpaper_apply_in_progress"
+        private const val LIVE_WALLPAPER_STATE_SYNC_MAX_RETRIES = 12
+        private const val LIVE_WALLPAPER_STATE_SYNC_DELAY_MS = 250L
         private const val AUTOSTART_PERMISSION_CHANNEL_ID = "bifrost_autostart_permission"
         private const val AUTOSTART_PERMISSION_NOTIFICATION_ID = 4245
         private const val EXTRA_DISPLAY_RELAUNCH_ATTEMPT = "display_relaunch_attempt"
@@ -307,8 +314,16 @@ class MainActivity : AppCompatActivity() {
     private var presetArtworkSheetDialog: BottomSheetDialog? = null
     private var appProfileSyncRunnable: Runnable? = null
     private var resumeStateSyncRunnable: Runnable? = null
+    private var liveWallpaperApplyStateSyncRunnable: Runnable? = null
     private var pendingBackupExportOptions: BackupArchiveTransfer.CategoryOptions? = null
     private var pendingBackupImportOptions: BackupArchiveTransfer.CategoryOptions? = null
+    private val liveWallpaperPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key != "live_wallpaper_is_applied") return@OnSharedPreferenceChangeListener
+        if (!isAppInitialized) return@OnSharedPreferenceChangeListener
+        runOnUiThread {
+            refreshLiveWallpaperActionButtons()
+        }
+    }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var presetController: PresetController
@@ -515,6 +530,11 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Live wallpaper video updated", Toast.LENGTH_SHORT).show()
         }
 
+    private val liveWallpaperApplyLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            scheduleLiveWallpaperApplyStateSync(initialDelayMs = 180L)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -573,6 +593,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun initializeApp() {
         mediaProjectionManager = getSystemService(MediaProjectionManager::class.java)
+        prefs.registerOnSharedPreferenceChangeListener(liveWallpaperPrefsListener)
 
         settingsOverlay = findViewById(R.id.settingsOverlay)
         homeContainer = findViewById(R.id.homeContainer)
@@ -582,10 +603,12 @@ class MainActivity : AppCompatActivity() {
         tabBehaviorSettings = findViewById(R.id.tabBehaviorSettings)
         tabThemesSettings = findViewById(R.id.tabThemesSettings)
         liveWallpaperTabButton = findViewById(R.id.liveWallpaperTabButton)
+        mainSettingsScroll = findViewById(R.id.mainSettingsScroll)
         liveWallpaperSettingsScroll = findViewById(R.id.liveWallpaperSettingsScroll)
         liveWallpaperVideoPathText = findViewById(R.id.liveWallpaperVideoPathText)
         liveWallpaperPickVideoButton = findViewById(R.id.liveWallpaperPickVideoButton)
         liveWallpaperApplyButton = findViewById(R.id.liveWallpaperApplyButton)
+        liveWallpaperRemoveButton = findViewById(R.id.liveWallpaperRemoveButton)
         liveWallpaperPerformanceSpinner = findViewById(R.id.liveWallpaperPerformanceSpinner)
         liveWallpaperFpsSeekBar = findViewById(R.id.liveWallpaperFpsSeekBar)
         liveWallpaperFpsValueText = findViewById(R.id.liveWallpaperFpsValueText)
@@ -806,7 +829,11 @@ class MainActivity : AppCompatActivity() {
 
         themesCard.visibility = if (showingThemes) View.VISIBLE else View.GONE
 
+        mainSettingsScroll.visibility = if (showingLiveWallpaper) View.GONE else View.VISIBLE
         liveWallpaperSettingsScroll.visibility = if (showingLiveWallpaper) View.VISIBLE else View.GONE
+        if (showingLiveWallpaper) {
+            refreshLiveWallpaperActionButtons()
+        }
 
         updateSettingsTabButtonStyles()
     }
@@ -897,6 +924,10 @@ class MainActivity : AppCompatActivity() {
             openLiveWallpaperChooser(requireVideo = true)
         }
 
+        liveWallpaperRemoveButton.setOnClickListener {
+            removeLiveWallpaper()
+        }
+
         val modes = LiveWallpaperSettingsManager.PerformanceMode.values().toList()
         val modeLabels = modes.map { it.name.replace("_", " ") }
         val adapter = ArrayAdapter(this, R.layout.item_spinner_bifrost, modeLabels)
@@ -930,6 +961,44 @@ class MainActivity : AppCompatActivity() {
         })
 
         refreshLiveWallpaperVideoSummary()
+        refreshLiveWallpaperActionButtons()
+    }
+
+    private fun syncLiveWallpaperAppliedState(): Boolean {
+        val fromSystem = isBifrostLiveWallpaperActive()
+        if (fromSystem) {
+            LiveWallpaperSettingsManager.setWallpaperApplied(prefs, true)
+            return true
+        }
+        return LiveWallpaperSettingsManager.isWallpaperApplied(prefs)
+    }
+
+    private fun scheduleLiveWallpaperApplyStateSync(initialDelayMs: Long = 120L) {
+        liveWallpaperApplyStateSyncRunnable?.let(mainHandler::removeCallbacks)
+        var attempts = 0
+        val runnable = object : Runnable {
+            override fun run() {
+                val isApplied = syncLiveWallpaperAppliedState()
+                refreshLiveWallpaperActionButtons()
+
+                if (isApplied || attempts >= LIVE_WALLPAPER_STATE_SYNC_MAX_RETRIES) {
+                    prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS, false).apply()
+                    return
+                }
+
+                attempts += 1
+                mainHandler.postDelayed(this, LIVE_WALLPAPER_STATE_SYNC_DELAY_MS)
+            }
+        }
+        liveWallpaperApplyStateSyncRunnable = runnable
+        mainHandler.postDelayed(runnable, initialDelayMs)
+    }
+
+    private fun refreshLiveWallpaperActionButtons() {
+        val isWallpaperApplied = LiveWallpaperSettingsManager.isWallpaperApplied(prefs) || syncLiveWallpaperAppliedState()
+        liveWallpaperPickVideoButton.visibility = if (isWallpaperApplied) View.GONE else View.VISIBLE
+        liveWallpaperApplyButton.visibility = if (isWallpaperApplied) View.GONE else View.VISIBLE
+        liveWallpaperRemoveButton.visibility = if (isWallpaperApplied) View.VISIBLE else View.GONE
     }
 
     private fun refreshLiveWallpaperVideoSummary() {
@@ -941,6 +1010,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun removeLiveWallpaper() {
+        val wallpaperManager = WallpaperManager.getInstance(this)
+        val removed = runCatching {
+            wallpaperManager.clear(WallpaperManager.FLAG_SYSTEM)
+        }.isSuccess || runCatching {
+            wallpaperManager.clear()
+        }.isSuccess
+
+        LiveWallpaperSettingsManager.clearVideoUri(prefs)
+        LiveWallpaperSettingsManager.setWallpaperApplied(prefs, false)
+        prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS, false).apply()
+        prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_RESTORE_SETTINGS, false).apply()
+        refreshLiveWallpaperVideoSummary()
+        refreshLiveWallpaperActionButtons()
+
+        if (!removed) {
+            runCatching {
+                startActivity(Intent(Intent.ACTION_SET_WALLPAPER))
+            }
+        }
+    }
+
     private fun openLiveWallpaperChooser(requireVideo: Boolean) {
         val uri = LiveWallpaperSettingsManager.getVideoUri(prefs)
         if (requireVideo && uri == null) {
@@ -948,17 +1039,26 @@ class MainActivity : AppCompatActivity() {
             setSettingsTab(SettingsTab.LIVE_WALLPAPER)
             return
         }
+        prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS, true).apply()
+        prefs.edit()
+            .putBoolean(
+                PREF_LIVE_WALLPAPER_RESTORE_SETTINGS,
+                ::settingsOverlay.isInitialized && settingsOverlay.visibility == View.VISIBLE
+            )
+            .apply()
         val component = ComponentName(this, VideoLiveWallpaperService::class.java)
         val targetedIntent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
             putExtra(WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT, component)
         }
         val fallbackIntent = Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER)
         try {
-            startActivity(targetedIntent)
+            liveWallpaperApplyLauncher.launch(targetedIntent)
         } catch (e: Exception) {
             try {
-                startActivity(fallbackIntent)
+                liveWallpaperApplyLauncher.launch(fallbackIntent)
             } catch (e2: Exception) {
+                prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS, false).apply()
+                prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_RESTORE_SETTINGS, false).apply()
                 Toast.makeText(this, "Unable to open wallpaper chooser", Toast.LENGTH_SHORT).show()
             }
         }
@@ -966,7 +1066,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun isBifrostLiveWallpaperActive(): Boolean {
         val info = WallpaperManager.getInstance(this).wallpaperInfo ?: return false
-        return info.packageName == packageName && info.serviceName == VideoLiveWallpaperService::class.java.name
+        val expectedComponent = ComponentName(this, VideoLiveWallpaperService::class.java)
+        val activeComponent = info.component
+        if (activeComponent == expectedComponent) return true
+
+        val serviceName = info.serviceName
+        val matches = info.packageName == packageName && (
+            serviceName == VideoLiveWallpaperService::class.java.name ||
+                serviceName.endsWith(".${VideoLiveWallpaperService::class.java.simpleName}")
+            )
+        Log.d(
+            "LiveWallpaperState",
+            "expected=${expectedComponent.flattenToShortString()} active=${activeComponent?.flattenToShortString()} package=${info.packageName} service=$serviceName matches=$matches"
+        )
+        return matches
     }
 
     private fun setupColoredLogoSwitch() {
@@ -2122,7 +2235,19 @@ class MainActivity : AppCompatActivity() {
             if (::presetController.isInitialized) {
                 presetController.reloadFromPrefs()
             }
+
+            if (prefs.getBoolean(PREF_LIVE_WALLPAPER_RESTORE_SETTINGS, false)) {
+                prefs.edit().putBoolean(PREF_LIVE_WALLPAPER_RESTORE_SETTINGS, false).apply()
+                setSettingsTab(SettingsTab.LIVE_WALLPAPER)
+                openSettingsOverlay()
+            }
+
             refreshCoverFlowFromPresets()
+            if (prefs.getBoolean(PREF_LIVE_WALLPAPER_APPLY_IN_PROGRESS, false)) {
+                scheduleLiveWallpaperApplyStateSync()
+            } else {
+                refreshLiveWallpaperActionButtons()
+            }
         }
         mainHandler.postDelayed(resumeStateSyncRunnable!!, 100)
     }
@@ -2144,6 +2269,8 @@ class MainActivity : AppCompatActivity() {
         serviceController.cancelPendingOperations()
         resumeStateSyncRunnable?.let(mainHandler::removeCallbacks)
         resumeStateSyncRunnable = null
+        liveWallpaperApplyStateSyncRunnable?.let(mainHandler::removeCallbacks)
+        liveWallpaperApplyStateSyncRunnable = null
         coverFlowSnapRunnable?.let(mainHandler::removeCallbacks)
         coverFlowSnapRunnable = null
     }
@@ -2151,6 +2278,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (!isAppInitialized) return
+        prefs.unregisterOnSharedPreferenceChangeListener(liveWallpaperPrefsListener)
         titleIntroAnimator?.cancel()
         headerSettleAnimator?.cancel()
         titleIntroAnimator = null
