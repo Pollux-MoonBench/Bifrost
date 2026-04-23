@@ -3,6 +3,7 @@ package com.moonbench.bifrost.animations
 import android.graphics.Color
 import android.media.projection.MediaProjection
 import android.util.DisplayMetrics
+import android.view.Display
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
@@ -12,12 +13,13 @@ import kotlin.math.roundToInt
 
 class AmbientAnimation(
     ledController: LedController,
-    private val mediaProjection: MediaProjection,
+    private val mediaProjection: MediaProjection?,
     private val displayMetrics: DisplayMetrics,
     private val profile: PerformanceProfile,
     private val useCustomSampling: Boolean,
     private val useSingleColor: Boolean,
-    initialSaturationBoost: Float = 0.0f
+    initialSaturationBoost: Float = 0.0f,
+    private val displayId: Int = Display.DEFAULT_DISPLAY
 ) : LedAnimation(ledController) {
 
     override val type: LedAnimationType = LedAnimationType.AMBIENT
@@ -60,7 +62,8 @@ class AmbientAnimation(
             profile,
             useCustomSampling,
             useSingleColor,
-            saturationBoost
+            saturationBoost,
+            displayId = displayId
         ) { colors ->
             updateColors(colors)
         }

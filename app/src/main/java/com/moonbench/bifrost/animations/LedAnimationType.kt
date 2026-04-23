@@ -7,7 +7,7 @@ enum class LedAnimationType(
     val supportsSmoothness: Boolean,
     val supportsAudioSensitivity: Boolean = false
 ) {
-    AMBIENT(true, false, true, true, false),
+    AMBIENT(false, false, true, true, false),
     AUDIO_REACTIVE(true, true, true, true, true),
     AMBIAURORA(true, false, true, true, true),
     BATTERY_INDICATOR(false, false, false, false, false),

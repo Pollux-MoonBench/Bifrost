@@ -111,6 +111,7 @@ class LEDService : Service() {
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
         private const val PROJECTION_PROMPT_CHANNEL_ID = "bifrost_projection_prompt_channel"
         private const val PROJECTION_PROMPT_NOTIFICATION_ID = 4244
+        const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = "ambilight_use_media_projection"
         var isRunning = false
     }
 
@@ -714,6 +715,17 @@ class LEDService : Service() {
 
         stopCurrentAnimation()
 
+        if (needsMediaProjection(animationType) && (resultCode != Activity.RESULT_OK || data == null)) {
+            Log.d(TAG, "processAnimationChange: missing MediaProjection token for $animationType, prompting user")
+            showProjectionPromptNotification()
+            pendingTransitionRunnable = Runnable {
+                isTransitioning.set(false)
+                pendingTransitionRunnable = null
+            }
+            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_START_DELAY_MS)
+            return
+        }
+
         if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
             pendingTransitionRunnable = Runnable {
                 try {
@@ -837,10 +849,10 @@ class LEDService : Service() {
             val triggerPackage = appProfileManager.getForegroundPackage(this)
             if (!triggerPackage.isNullOrBlank() && switchResult.presetName != null) {
                 appProfileManager.setPendingProjectionToken(triggerPackage, switchResult.presetName)
-                if (!appProfileManager.isPendingProjectionNotified()) {
-                    showProjectionPromptNotification()
-                    appProfileManager.markPendingProjectionNotified()
-                }
+            }
+            if (!appProfileManager.isPendingProjectionNotified()) {
+                showProjectionPromptNotification()
+                appProfileManager.markPendingProjectionNotified()
             }
             return
         }
@@ -1288,8 +1300,10 @@ class LEDService : Service() {
     }
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
-        return type == LedAnimationType.AMBIENT ||
-                type == LedAnimationType.AUDIO_REACTIVE ||
+        if (type == LedAnimationType.AMBIENT) {
+            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        }
+        return type == LedAnimationType.AUDIO_REACTIVE ||
                 type == LedAnimationType.AMBIAURORA
     }
 
@@ -1302,16 +1316,17 @@ class LEDService : Service() {
     ): LedAnimation? {
         return when (type) {
             LedAnimationType.AMBIENT -> {
-                val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
+                val useMP = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
                 val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
                 AmbientAnimation(
                     ledController,
-                    projection,
+                    if (useMP) synchronized(mediaProjectionLock) { mediaProjection } else null,
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,
                     currentUseSingleColor,
-                    saturationBoost
+                    saturationBoost,
+                    currentAmbientDisplayId
                 )
             }
             LedAnimationType.AUDIO_REACTIVE -> {

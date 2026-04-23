@@ -66,6 +66,7 @@ import com.google.android.material.textfield.TextInputLayout
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.external.ExternalApiGate
 import com.moonbench.bifrost.services.AppProfileManager
+import com.moonbench.bifrost.services.BifrostAccessibilityService
 import com.moonbench.bifrost.services.HeimdallStartupManager
 import com.moonbench.bifrost.services.LEDService
 import com.moonbench.bifrost.services.LiveWallpaperSettingsManager
@@ -123,6 +124,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var saturationBoostSeekBar: SeekBar
     private lateinit var customSamplingSwitch: SwitchMaterial
     private lateinit var singleColorSwitch: SwitchMaterial
+    private lateinit var ambilightUseMediaProjectionSwitch: SwitchMaterial
     private lateinit var breatheWhenChargingSwitch: SwitchMaterial
     private lateinit var chargingSpeedIndicatorSwitch: SwitchMaterial
     private lateinit var flashWhenReadySwitch: SwitchMaterial
@@ -230,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_FIRST_LAUNCH_ALERT_SHOWN = "first_launch_alert_shown"
         private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
         private const val PREF_THOR_AMBIENT_BOTTOM_SCREEN = "thor_ambient_bottom_screen"
+        private const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
         private const val PREF_ADAPTIVE_BRIGHTNESS = "adaptive_brightness_enabled"
@@ -396,7 +399,10 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
             if (isGranted) {
-                if (selectedAnimationType.needsMediaProjection) {
+                if (needsAccessibilityPermission(selectedAnimationType) && !BifrostAccessibilityService.isEnabled(this)) {
+                    Toast.makeText(this, "Enable Accessibility for Ambilight features", Toast.LENGTH_LONG).show()
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                } else if (requiresProjectionToken(selectedAnimationType)) {
                     if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                         serviceController.startDebounced { createLedServiceIntent() }
                     } else {
@@ -647,6 +653,7 @@ class MainActivity : AppCompatActivity() {
         saturationBoostSeekBar = findViewById(R.id.saturationBoostSeekBar)
         customSamplingSwitch = findViewById(R.id.customSamplingSwitch)
         singleColorSwitch = findViewById(R.id.singleColorSwitch)
+        ambilightUseMediaProjectionSwitch = findViewById(R.id.ambilightUseMediaProjectionSwitch)
         breatheWhenChargingSwitch = findViewById(R.id.breatheWhenChargingSwitch)
         chargingSpeedIndicatorSwitch = findViewById(R.id.chargingSpeedIndicatorSwitch)
         flashWhenReadySwitch = findViewById(R.id.flashWhenReadySwitch)
@@ -697,6 +704,7 @@ class MainActivity : AppCompatActivity() {
         setupSaturationBoostSeekBar()
         setupCustomSamplingSwitch()
         setupSingleColorSwitch()
+        setupAmbilightCaptureSwitch()
         setupBreatheWhenChargingSwitch()
         setupChargingSpeedIndicatorSwitch()
         setupFlashWhenReadySwitch()
@@ -2794,6 +2802,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupAmbilightCaptureSwitch() {
+        ambilightUseMediaProjectionSwitch.isChecked = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        ambilightUseMediaProjectionSwitch.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, isChecked).apply()
+            if (!LEDService.isRunning || serviceController.isServiceTransitioning) return@setOnCheckedChangeListener
+            if (isChecked) {
+                if (mediaProjectionResultCode != null && mediaProjectionData != null) {
+                    // Already have a token — restart with it (requiresProjectionToken now returns true so it's included)
+                    serviceController.restartDebounced { createLedServiceIntent() }
+                } else {
+                    // No token yet — request permission. screenCaptureLauncher will call
+                    // startDebounced { createLedServiceIntent() } which now includes the token.
+                    handleMediaProjectionRequirement()
+                }
+            } else {
+                // Switching back to accessibility mode — restart without MediaProjection
+                serviceController.restartDebounced { createLedServiceIntent() }
+            }
+        }
+    }
+
     private fun setupBreatheWhenChargingSwitch() {
         breatheWhenChargingSwitch.isChecked = selectedBreatheWhenCharging
         breatheWhenChargingSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -2975,7 +3004,7 @@ class MainActivity : AppCompatActivity() {
     private fun maybeAutoStartHeimdallOnLaunch() {
         if (!HeimdallStartupManager.isAutoStartEnabled(prefs) || LEDService.isRunning) return
         if (!checkNotificationPermission()) return
-        if (selectedAnimationType.needsMediaProjection &&
+        if (requiresProjectionToken(selectedAnimationType) &&
             (mediaProjectionResultCode == null || mediaProjectionData == null)
         ) {
             return
@@ -3428,29 +3457,42 @@ class MainActivity : AppCompatActivity() {
         confirmLabel: String,
         onConfirm: (BackupArchiveTransfer.CategoryOptions) -> Unit
     ) {
-        val labels = arrayOf("Themes", "Profiles", "Images")
-        val checked = booleanArrayOf(true, true, true)
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_backup_category_selection, null)
+        val titleView = view.findViewById<TextView>(R.id.dialogTitle)
+        val subtitleView = view.findViewById<TextView>(R.id.dialogSubtitle)
+        val themesSwitch = view.findViewById<SwitchMaterial>(R.id.themesSwitch)
+        val profilesSwitch = view.findViewById<SwitchMaterial>(R.id.profilesSwitch)
+        val imagesSwitch = view.findViewById<SwitchMaterial>(R.id.imagesSwitch)
 
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(subtitle)
-            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
-                checked[which] = isChecked
-            }
-            .setPositiveButton(confirmLabel) { _, _ ->
+        titleView.text = title
+        subtitleView.text = subtitle
+        themesSwitch.isChecked = true
+        profilesSwitch.isChecked = true
+        imagesSwitch.isChecked = true
+
+        val dialog = AlertDialog.Builder(this)
+            .setView(view)
+            .setPositiveButton(confirmLabel, null)
+            .setNegativeButton(R.string.action_cancel, null)
+            .create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val options = BackupArchiveTransfer.CategoryOptions(
-                    themes = checked[0],
-                    profiles = checked[1],
-                    images = checked[2]
+                    themes = themesSwitch.isChecked,
+                    profiles = profilesSwitch.isChecked,
+                    images = imagesSwitch.isChecked
                 )
                 if (!options.hasAtLeastOneCategory()) {
                     Toast.makeText(this, "Select at least one category", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
+                dialog.dismiss()
                 onConfirm(options)
             }
-            .setNegativeButton(R.string.action_cancel, null)
-            .show()
+        }
+        dialog.show()
     }
 
     private fun describeBackupCategories(options: BackupArchiveTransfer.CategoryOptions): String {
@@ -3716,6 +3758,10 @@ class MainActivity : AppCompatActivity() {
             singleColorSwitch.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
             bothSticksSameColor.visibility = if (needsSingleColor) View.VISIBLE else View.GONE
 
+            val needsAmbilightCapture = selectedAnimationType == LedAnimationType.AMBIENT
+            val ambilightCaptureRow = findViewById<View>(R.id.ambilightCaptureRow)
+            ambilightCaptureRow?.visibility = if (needsAmbilightCapture) View.VISIBLE else View.GONE
+
             breatheWhenChargingRow?.visibility = if (needsBreatheWhenCharging) View.VISIBLE else View.GONE
             chargingSpeedIndicatorRow?.visibility = if (needsChargingSpeedIndicator) View.VISIBLE else View.GONE
             flashWhenReadyRow?.visibility = if (needsFlashWhenReady) View.VISIBLE else View.GONE
@@ -3805,7 +3851,12 @@ class MainActivity : AppCompatActivity() {
             serviceController.startDebounced { createLedServiceIntent() }
             return
         }
-        if (selectedAnimationType.needsMediaProjection) {
+        if (needsAccessibilityPermission(selectedAnimationType) && !BifrostAccessibilityService.isEnabled(this)) {
+            Toast.makeText(this, "Enable Accessibility for Ambilight features", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            return
+        }
+        if (requiresProjectionToken(selectedAnimationType)) {
             if (mediaProjectionResultCode != null && mediaProjectionData != null) {
                 serviceController.startDebounced { createLedServiceIntent() }
             } else {
@@ -3832,7 +3883,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestScreenCapturePermission() {
+        Toast.makeText(
+            this,
+            "Android requires a capture consent popup for internal audio capture",
+            Toast.LENGTH_SHORT
+        ).show()
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+    }
+
+    private fun requiresProjectionToken(type: LedAnimationType): Boolean {
+        if (type == LedAnimationType.AMBIENT) {
+            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        }
+        return type.needsMediaProjection
+    }
+
+    private fun needsAccessibilityPermission(type: LedAnimationType): Boolean {
+        if (type == LedAnimationType.AMBIENT) {
+            return !prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        }
+        return type == LedAnimationType.AMBIAURORA
     }
 
     private fun getAmbientTargetDisplayId(): Int {
@@ -3888,7 +3958,7 @@ class MainActivity : AppCompatActivity() {
             val shouldIncludeMP = if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
                 mediaProjectionResultCode != null && mediaProjectionData != null
             } else {
-                selectedAnimationType.needsMediaProjection
+                requiresProjectionToken(selectedAnimationType)
             }
             if (shouldIncludeMP) {
                 putExtra("resultCode", mediaProjectionResultCode)
