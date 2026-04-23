@@ -109,7 +109,7 @@ class LEDService : Service() {
         private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
         private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
-        private const val PROJECTION_PROMPT_CHANNEL_ID = "bifrost_projection_prompt_channel"
+        private const val PROJECTION_PROMPT_CHANNEL_ID = "bifrost_projection_prompt_channel_v2"
         private const val PROJECTION_PROMPT_NOTIFICATION_ID = 4244
         const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = "ambilight_use_media_projection"
         var isRunning = false
@@ -1296,6 +1296,8 @@ class LEDService : Service() {
             "App profile permission prompt",
             NotificationManager.IMPORTANCE_HIGH
         )
+        channel.enableVibration(true)
+        channel.enableLights(true)
         manager.createNotificationChannel(channel)
     }
 
