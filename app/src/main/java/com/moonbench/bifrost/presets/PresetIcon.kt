@@ -41,7 +41,7 @@ enum class PresetIcon(
                 LedAnimationType.FADE_TRANSITION -> LIGHT
 
                 LedAnimationType.AUDIO_REACTIVE -> PLAY
-                LedAnimationType.AMBILIGHT,
+                LedAnimationType.AMBIENT,
                 LedAnimationType.AMBIAURORA -> DISPLAY
 
                 LedAnimationType.BATTERY_INDICATOR,

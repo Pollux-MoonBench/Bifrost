@@ -5,9 +5,6 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.ActivityOptions
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.SharedPreferences
@@ -57,8 +54,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import android.util.Log
 import android.widget.ScrollView
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.google.android.material.button.MaterialButton
@@ -71,7 +66,6 @@ import com.google.android.material.textfield.TextInputLayout
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.external.ExternalApiGate
 import com.moonbench.bifrost.services.AppProfileManager
-import com.moonbench.bifrost.services.BifrostAccessibilityService
 import com.moonbench.bifrost.services.HeimdallStartupManager
 import com.moonbench.bifrost.services.LEDService
 import com.moonbench.bifrost.services.LiveWallpaperSettingsManager
@@ -173,7 +167,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bifrostLogoView: ImageView
     private lateinit var bifrostTitleText: TextView
     private var thorLaunchBottomSwitch: SwitchMaterial? = null
-    private var thorAmbilightBottomSwitch: SwitchMaterial? = null
+    private var thorAmbientBottomSwitch: SwitchMaterial? = null
 
     private val prefs by lazy { getSharedPreferences("bifrost_prefs", MODE_PRIVATE) }
 
@@ -235,7 +229,7 @@ class MainActivity : AppCompatActivity() {
         private const val TITLE_INTRO_ANIMATION_MS = 3200L
         private const val PREF_FIRST_LAUNCH_ALERT_SHOWN = "first_launch_alert_shown"
         private const val PREF_THOR_BOTTOM_SCREEN = "thor_bottom_screen"
-        private const val PREF_THOR_AMBILIGHT_BOTTOM_SCREEN = "thor_ambilight_bottom_screen"
+        private const val PREF_THOR_AMBIENT_BOTTOM_SCREEN = "thor_ambient_bottom_screen"
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
         private const val PREF_ADAPTIVE_BRIGHTNESS = "adaptive_brightness_enabled"
@@ -268,7 +262,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_GRANT_PROJECTION_FOR_APP_PROFILE = "grant_projection_for_app_profile"
     }
 
-    private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
+    private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBIENT
     private var selectedProfile: PerformanceProfile = PerformanceProfile.HIGH
     private var selectedColor: Int = Color.WHITE
     private var selectedRightColor: Int = Color.WHITE
@@ -307,7 +301,7 @@ class MainActivity : AppCompatActivity() {
     private var lastCoverFlowScrollXForSnap: Int = 0
     private var isSettingsOverlayAnimating: Boolean = false
     private var currentSettingsTab: SettingsTab = SettingsTab.UI
-    private var isColoredLogoEnabled: Boolean = true
+    private var isColoredLogoEnabled: Boolean = false
     private var isSyncingAppProfileSwitches: Boolean = false
     private var isSyncingAppProfileDefaultSwitch: Boolean = false
     private var pendingPresetArtworkIndex: Int? = null
@@ -1083,7 +1077,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupColoredLogoSwitch() {
-        isColoredLogoEnabled = prefs.getBoolean(PREF_COLORED_LOGO_ENABLED, true)
+        isColoredLogoEnabled = prefs.getBoolean(PREF_COLORED_LOGO_ENABLED, false)
         coloredLogoSwitch.isChecked = isColoredLogoEnabled
         applyHeaderLogoPreference()
 
@@ -2924,10 +2918,10 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post { maybeRelaunchOnCorrectDisplay(ignoreRetryGuard = true) }
         }
 
-        thorAmbilightBottomSwitch = findViewById(R.id.thorAmbilightBottomSwitch)
-        thorAmbilightBottomSwitch?.isChecked = prefs.getBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, false)
-        thorAmbilightBottomSwitch?.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, isChecked).apply()
+        thorAmbientBottomSwitch = findViewById(R.id.thorAmbientBottomSwitch)
+        thorAmbientBottomSwitch?.isChecked = prefs.getBoolean(PREF_THOR_AMBIENT_BOTTOM_SCREEN, false)
+        thorAmbientBottomSwitch?.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit().putBoolean(PREF_THOR_AMBIENT_BOTTOM_SCREEN, isChecked).apply()
             // Invalidate cached screen-capture grant so next start targets the new display
             mediaProjectionResultCode = null
             mediaProjectionData = null
@@ -3655,11 +3649,11 @@ class MainActivity : AppCompatActivity() {
         val needsSpeed = selectedAnimationType.supportsSpeed
         val needsSmoothness = selectedAnimationType.supportsSmoothness
         val needsSensitivity = selectedAnimationType.supportsAudioSensitivity
-        val needsSaturationBoost = selectedAnimationType == LedAnimationType.AMBILIGHT ||
+        val needsSaturationBoost = selectedAnimationType == LedAnimationType.AMBIENT ||
                 selectedAnimationType == LedAnimationType.AMBIAURORA
-        val needsCustomSampling = selectedAnimationType == LedAnimationType.AMBILIGHT ||
+        val needsCustomSampling = selectedAnimationType == LedAnimationType.AMBIENT ||
                 selectedAnimationType == LedAnimationType.AMBIAURORA
-        val needsSingleColor = selectedAnimationType == LedAnimationType.AMBILIGHT ||
+        val needsSingleColor = selectedAnimationType == LedAnimationType.AMBIENT ||
                 selectedAnimationType == LedAnimationType.AMBIAURORA
         val needsBreatheWhenCharging = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
         val needsChargingSpeedIndicator = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR &&
@@ -3841,9 +3835,9 @@ class MainActivity : AppCompatActivity() {
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
     }
 
-    private fun getAmbilightTargetDisplayId(): Int {
+    private fun getAmbientTargetDisplayId(): Int {
         if (!DeviceInfo.isAynThor) return Display.DEFAULT_DISPLAY
-        if (!prefs.getBoolean(PREF_THOR_AMBILIGHT_BOTTOM_SCREEN, false)) return Display.DEFAULT_DISPLAY
+        if (!prefs.getBoolean(PREF_THOR_AMBIENT_BOTTOM_SCREEN, false)) return Display.DEFAULT_DISPLAY
         return getThorSecondaryDisplayId() ?: Display.DEFAULT_DISPLAY
     }
 
@@ -3881,7 +3875,7 @@ class MainActivity : AppCompatActivity() {
                 LEDService.EXTRA_ADAPTIVE_BRIGHTNESS,
                 selectedAdaptiveBrightness
             )
-            putExtra("ambilightDisplayId", getAmbilightTargetDisplayId())
+            putExtra("ambientDisplayId", getAmbientTargetDisplayId())
             putExtra(
                 LEDService.EXTRA_ALLOW_BACKGROUND_RUN,
                 HeimdallStartupManager.isAutoStartEnabled(prefs) ||

@@ -19,7 +19,7 @@ object ExternalCommandValidator {
     class ValidationException(val kind: ErrorKind) : RuntimeException(kind.name)
 
     private val mpBlockedEffects = setOf(
-        LedAnimationType.AMBILIGHT,
+        LedAnimationType.AMBIENT,
         LedAnimationType.AUDIO_REACTIVE,
         LedAnimationType.AMBIAURORA,
     )

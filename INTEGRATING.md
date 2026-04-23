@@ -195,7 +195,7 @@ You do **not** need to add the `<queries>` block just to send broadcasts — And
 
 ## 6 — Available effects
 
-Pass one of these strings as `EXTRA_EFFECT`. Effects requiring screen capture (`AMBILIGHT`, `AUDIO_REACTIVE`, `AMBIAURORA`) are blocked in the external API — they need a MediaProjection consent flow that only Bifrost's own UI can trigger.
+Pass one of these strings as `EXTRA_EFFECT`. Effects requiring screen capture (`AMBIENT`, `AUDIO_REACTIVE`, `AMBIAURORA`) are blocked in the external API — they need a MediaProjection consent flow that only Bifrost's own UI can trigger.
 
 | Effect name | Color | R/L independent | Speed | Smoothness | Sensitivity | Notes |
 |---|---|---|---|---|---|---|

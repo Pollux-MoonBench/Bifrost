@@ -109,7 +109,7 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
-                            android:text="Enable Bifrost in Accessibility so ambilight can capture screen colors without repeated projection popups."
+                            android:text="Enable Bifrost in Accessibility so ambient can capture screen colors without repeated projection popups."
                             android:textColor="@color/bifrost_text_secondary"
                             android:textSize="14sp" />
 
@@ -189,7 +189,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
                             android:gravity="center_horizontal"
-                            android:text="Your rig is ready. Ambilight, App Profiles, and audio-reactive effects are now unlocked."
+                            android:text="Your rig is ready. Ambient, App Profiles, and audio-reactive effects are now unlocked."
                             android:textColor="@color/bifrost_text_secondary"
                             android:textSize="14sp" />
                     </LinearLayout>

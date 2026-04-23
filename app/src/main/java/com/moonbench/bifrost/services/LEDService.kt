@@ -36,7 +36,7 @@ import androidx.core.content.ContextCompat
 import com.moonbench.bifrost.MainActivity
 import com.moonbench.bifrost.R
 import com.moonbench.bifrost.animations.AmbiAuroraAnimation
-import com.moonbench.bifrost.animations.AmbilightAnimation
+import com.moonbench.bifrost.animations.AmbientAnimation
 import com.moonbench.bifrost.animations.AudioReactiveAnimation
 import com.moonbench.bifrost.animations.BatteryIndicatorAnimation
 import com.moonbench.bifrost.animations.BreathAnimation
@@ -130,7 +130,7 @@ class LEDService : Service() {
     private var currentSmoothness: Float = 0.5f
     private var currentSensitivity: Float = 0.5f
     private var currentProfile: PerformanceProfile = PerformanceProfile.MEDIUM
-    private var currentAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
+    private var currentAnimationType: LedAnimationType = LedAnimationType.AMBIENT
     private var currentSaturationBoost: Float = 0f
     private var currentUseCustomSampling: Boolean = false
     private var currentUseSingleColor: Boolean = false
@@ -147,7 +147,7 @@ class LEDService : Service() {
     private var currentPersistentNotification: Boolean = true
     private var currentAdaptiveBrightness: Boolean = false
     private var allowBackgroundRun: Boolean = false
-    private var currentAmbilightDisplayId: Int = Display.DEFAULT_DISPLAY
+    private var currentAmbientDisplayId: Int = Display.DEFAULT_DISPLAY
     private var activeAnimationType: LedAnimationType? = null
     private var lastProjectionResultCode: Int = Activity.RESULT_OK
     private var lastProjectionData: Intent? = null
@@ -340,7 +340,7 @@ class LEDService : Service() {
         val animationTypeName = intent.getStringExtra("animationType")
         val animationType = animationTypeName?.let {
             runCatching { LedAnimationType.valueOf(it) }.getOrNull()
-        } ?: LedAnimationType.AMBILIGHT
+        } ?: LedAnimationType.AMBIENT
 
         val profileName = intent.getStringExtra("performanceProfile")
         val profile = profileName?.let {
@@ -365,7 +365,7 @@ class LEDService : Service() {
         currentCpuCoolColorOverride = parseOptionalColor(intent, EXTRA_CPU_COOL_COLOR_OVERRIDE)
         currentCpuWarmColorOverride = parseOptionalColor(intent, EXTRA_CPU_WARM_COLOR_OVERRIDE)
         currentCpuHotColorOverride = parseOptionalColor(intent, EXTRA_CPU_HOT_COLOR_OVERRIDE)
-        currentAmbilightDisplayId = intent.getIntExtra("ambilightDisplayId", Display.DEFAULT_DISPLAY)
+        currentAmbientDisplayId = intent.getIntExtra("ambientDisplayId", Display.DEFAULT_DISPLAY)
 
         // Protect existing projection data when app-profile mode is active
         // and the intent was built for a non-MP animation (won't have real MP extras).
@@ -1288,7 +1288,7 @@ class LEDService : Service() {
     }
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
-        return type == LedAnimationType.AMBILIGHT ||
+        return type == LedAnimationType.AMBIENT ||
                 type == LedAnimationType.AUDIO_REACTIVE ||
                 type == LedAnimationType.AMBIAURORA
     }
@@ -1301,10 +1301,10 @@ class LEDService : Service() {
         saturationBoost: Float
     ): LedAnimation? {
         return when (type) {
-            LedAnimationType.AMBILIGHT -> {
+            LedAnimationType.AMBIENT -> {
                 val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
-                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
-                AmbilightAnimation(
+                val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
+                AmbientAnimation(
                     ledController,
                     projection,
                     displayMetrics,
@@ -1316,7 +1316,7 @@ class LEDService : Service() {
             }
             LedAnimationType.AUDIO_REACTIVE -> {
                 val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
-                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
+                val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
                 AudioReactiveAnimation(
                     ledController,
                     projection,
@@ -1328,7 +1328,7 @@ class LEDService : Service() {
             }
             LedAnimationType.AMBIAURORA -> {
                 val projection = synchronized(mediaProjectionLock) { mediaProjection } ?: return null
-                val displayMetrics = getDisplayMetrics(currentAmbilightDisplayId)
+                val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
                 AmbiAuroraAnimation(
                     ledController,
                     projection,

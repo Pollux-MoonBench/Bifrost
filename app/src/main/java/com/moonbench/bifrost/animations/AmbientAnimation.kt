@@ -3,13 +3,14 @@ package com.moonbench.bifrost.animations
 import android.graphics.Color
 import android.media.projection.MediaProjection
 import android.util.DisplayMetrics
+import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.tools.ScreenAnalyzer
 import com.moonbench.bifrost.tools.ScreenColors
 import kotlin.math.roundToInt
 
-class AmbilightAnimation(
+class AmbientAnimation(
     ledController: LedController,
     private val mediaProjection: MediaProjection,
     private val displayMetrics: DisplayMetrics,
@@ -19,7 +20,7 @@ class AmbilightAnimation(
     initialSaturationBoost: Float = 0.0f
 ) : LedAnimation(ledController) {
 
-    override val type: LedAnimationType = LedAnimationType.AMBILIGHT
+    override val type: LedAnimationType = LedAnimationType.AMBIENT
     override val needsColorSelection: Boolean = false
 
     private var screenAnalyzer: ScreenAnalyzer? = null

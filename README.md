@@ -3,22 +3,22 @@
 Bifrost is a custom LED controller for the **AYN Thor** handheld (and might work for other handhelds).  
 It provides a collection of LED animations that can run in the background, including:
 
-- **Ambilight**
+- **Ambient**
 - **Audio Reactive**
-- **Ambi Aurora** (a mix of Ambilight + Audio Reactive)
+- **Ambi Aurora** (a mix of Ambient + Audio Reactive)
 - **Classic animations:** Breath, Rainbow, Pulse, and more
 
 Bifrost aims to bring a vibrant, customizable lighting experience to the  
 AYN Thor while keeping performance and battery consumption in mind.
 
 > ⚠️ **Important:** For animations to work, **Bifrost must stay alive in the background**.  
-> Closing the app or restricting notification (and screen recording for Ambilight) activity will stop LED updates.
+> Closing the app or restricting notification (and screen recording for Ambient) activity will stop LED updates.
 
 ---
 
 # ✨ Features
 
-## Ambilight
+## Ambient
 
 Uses Android's screen recording API to sample the screen's left and right average colors.  
 For performance, Bifrost captures the screen in **2×1 pixels** and reads the RGB values directly from the buffer.
@@ -50,7 +50,7 @@ Analyzes live audio levels (using the screen recording permission) to drive LED 
 
 ## Ambi Aurora
 
-Combines Ambilight color sampling with Audio Reactive intensity for a hybrid effect.
+Combines Ambient color sampling with Audio Reactive intensity for a hybrid effect.
 
 ### Enhancements
 
@@ -170,13 +170,13 @@ If you use **Obtainium**, you can automatically receive updates:
 
 # 🔒 Required Permissions
 
-To enable Ambilight, Audio Reactive, and Ambi Aurora modes, Bifrost requires:
+To enable Ambient, Audio Reactive, and Ambi Aurora modes, Bifrost requires:
 
 ### Screen recording permission
 
 Used exclusively to sample:
 
-- Screen colors (Ambilight)
+- Screen colors (Ambient)
 - Audio intensity (Audio Reactive)
 
 Bifrost does **not save or transmit screen contents** — sampling happens locally and is reduced to minimal pixel data for efficiency.
@@ -206,7 +206,7 @@ While overall stability has improved, unexpected behavior may still occur on som
 
 - Random crashes under certain conditions
 - Granting notification permission at launch may cause the LED toggle switch to appear disabled even though animations continue running
-- On the Retroid Pocket Mini, only the left stick turns on in Ambilight mode.  
+- On the Retroid Pocket Mini, only the left stick turns on in Ambient mode.  
   This issue can be solved using the **custom color sampler mode**.
 
 Thanks to **r/hupo224** for helping investigate this issue.

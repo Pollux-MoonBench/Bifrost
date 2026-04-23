@@ -55,7 +55,7 @@
     <string name="startup_accessibility_title">Allow full device control</string>
     <string name="startup_accessibility_body">Bifrost uses Accessibility screenshot capture to sample your screen continuously without repeating capture prompts.</string>
     <string name="startup_accessibility_action">Open Accessibility Settings</string>
-    <string name="startup_accessibility_desc">Allows Bifrost to capture display frames for LED ambilight effects.</string>
+    <string name="startup_accessibility_desc">Allows Bifrost to capture display frames for LED ambient effects.</string>
 
     <string name="startup_audio_title">Allow usage access</string>
     <string name="startup_audio_body">Needed for App Profile mode so Bifrost can detect foreground apps and auto-switch presets.</string>
