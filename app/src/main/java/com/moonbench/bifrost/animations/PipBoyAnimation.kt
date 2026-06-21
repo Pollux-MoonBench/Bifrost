@@ -325,7 +325,14 @@ class PipBoyAnimation(
 
             // Flicker + burst + vscan schedulers — deterministic, seeded.
             if (pipBurst > 0.0) pipBurst = (pipBurst - dt * BURST_FADE).coerceAtLeast(0.0)
+            val flickerWas = flickering
             advanceFlicker(dt)
+            // DIAGNOSTIC: log each flicker toggle with the (locked) screen clock,
+            // to compare against the screen's own SCRNFLK toggle log (same t ⇒
+            // the seeded schedules are bit-matched).
+            if (flickering != flickerWas) {
+                android.util.Log.i("BIBI", "PLUGFLK flickering=%b pluginT=%.2f".format(flickering, t))
+            }
             val vscanWasActive = fVScanState >= VSCAN_START
             advanceVScan(dt)
             // DIAGNOSTIC: log each vscan roll start with the (locked) screen clock.

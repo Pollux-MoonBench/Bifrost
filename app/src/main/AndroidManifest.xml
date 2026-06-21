@@ -46,6 +46,13 @@
             </intent-filter>
         </activity>
 
+        <!-- First-run guide launched from MainActivity.onCreate. Must be
+             declared or R8 (minifyEnabled) renames the class and startActivity
+             fails with ActivityNotFoundException, crashing app launch. -->
+        <activity
+            android:name=".StartupGuideActivity"
+            android:exported="false" />
+
         <service
             android:name=".services.LEDService"
             android:foregroundServiceType="mediaProjection"
@@ -71,6 +78,7 @@
                 <action android:name="com.moonbench.bifrost.api.ACTION_CLEAR" />
                 <action android:name="com.moonbench.bifrost.api.ACTION_INSTALL_PROFILE" />
                 <action android:name="com.moonbench.bifrost.api.ACTION_UNINSTALL_PROFILE" />
+                <action android:name="com.moonbench.bifrost.api.ACTION_PULSE" />
             </intent-filter>
         </receiver>
 
