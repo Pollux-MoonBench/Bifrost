@@ -54,17 +54,27 @@ class PipBoyAnimation(
         const val FLICKER_MAX_DELAY = 15.0    // fFlickerMaxDelay
         const val FLICKER_MIN_DURATION = 0.1  // fFlickerMinDuration
         const val FLICKER_MAX_DURATION = 0.6  // fFlickerMaxDuration
-        const val FLICKER_DEPTH = 0.7         // max downward dim during a stutter
+        const val FLICKER_DEPTH = 0.55        // max downward dim during a stutter
+
+        // Pip-Boy phosphor green — the default when no real colour has been
+        // supplied yet (e.g. before the in-game HUD EffectColor arrives).
+        const val PIPBOY_GREEN = 0xFF00FF00.toInt()
+        const val DARK_SUM_THRESHOLD = 24     // r+g+b below this ⇒ treat as unset
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
 
-    private var targetColor: Int = initialColor
-    private var currentColor: Int = initialColor
-    private var targetRightColor: Int = initialRightColor
-    private var currentRightColor: Int = initialRightColor
+    private var targetColor: Int = greenIfUnset(initialColor)
+    private var currentColor: Int = greenIfUnset(initialColor)
+    private var targetRightColor: Int = greenIfUnset(initialRightColor)
+    private var currentRightColor: Int = greenIfUnset(initialRightColor)
     private var targetBrightness: Int = 255
+    private var loggedColor = false
+
+    /** Default to Pip-Boy green when the supplied colour is black/near-black. */
+    private fun greenIfUnset(c: Int): Int =
+        if (Color.red(c) + Color.green(c) + Color.blue(c) < DARK_SUM_THRESHOLD) PIPBOY_GREEN else c
 
     // Phase origin. Defaults to the moment start() is called; can be re-aligned
     // to the screen's clock via setPhaseOrigin so the pulse tracks in phase.
@@ -74,8 +84,8 @@ class PipBoyAnimation(
     private var flickering = false
     private var flickerStateEnds = 0.0    // seconds-since-origin when current state flips
 
-    override fun setTargetColor(color: Int) { targetColor = color }
-    override fun setTargetRightColor(color: Int) { targetRightColor = color }
+    override fun setTargetColor(color: Int) { targetColor = greenIfUnset(color) }
+    override fun setTargetRightColor(color: Int) { targetRightColor = greenIfUnset(color) }
     override fun setTargetBrightness(brightness: Int) {
         targetBrightness = brightness.coerceIn(0, 255)
     }
@@ -99,6 +109,12 @@ class PipBoyAnimation(
             val colorFactor = 0.2f
             currentColor = lerpColor(currentColor, targetColor, colorFactor)
             currentRightColor = lerpColor(currentRightColor, targetRightColor, colorFactor)
+
+            if (!loggedColor) {
+                loggedColor = true
+                android.util.Log.i("BIBI",
+                    "PipBoy: target=#%08X bright=%d".format(targetColor, targetBrightness))
+            }
 
             val t = (SystemClock.elapsedRealtime() - originMs) / 1000.0
 
