@@ -633,6 +633,16 @@ class LEDService : Service() {
     }
 
     private fun resolveEffectiveAnimationType(): LedAnimationType {
+        // An active external override (a Bifrost plugin / third-party app
+        // command via ACTION_DISPLAY) is an explicit, prioritised request and
+        // takes precedence over everything passive: the charge-when-plugged
+        // indicator, app-profile switching, and the user's standing preset.
+        // This mirrors the documented contract ("app-profile switching is
+        // paused while an override is active") — the charge indicator is held
+        // back the same way until the override is cleared/expires.
+        if (activeExternalOverride != null) {
+            return currentAnimationType
+        }
         return if (
             currentBatteryOverrideWhenPlugged &&
             isDevicePluggedIn &&
