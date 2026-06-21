@@ -23,7 +23,8 @@ sealed class ExternalApiCommand {
         val smoothness: Float,
         val sensitivity: Float,
         val terminator: Terminator,
-        val priority: Int
+        val priority: Int,
+        val phaseSeconds: Float = 0f
     ) : ExternalApiCommand()
 
     data class Clear(

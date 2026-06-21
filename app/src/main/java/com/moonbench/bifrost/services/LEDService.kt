@@ -94,6 +94,7 @@ class LEDService : Service() {
         const val EXTRA_EXTERNAL_PRIORITY = "external.priority"
         const val EXTRA_EXTERNAL_TERMINATOR = "external.terminator"
         const val EXTRA_EXTERNAL_DURATION_MS = "external.durationMs"
+        const val EXTRA_EXTERNAL_PHASE_SECONDS = "external.phaseSeconds"
 
         const val TERMINATOR_DURATION = "DURATION"
         const val TERMINATOR_NEXT_COMMAND = "NEXT_COMMAND"
@@ -128,6 +129,7 @@ class LEDService : Service() {
     private var currentSpeed: Float = 0.5f
     private var currentSmoothness: Float = 0.5f
     private var currentSensitivity: Float = 0.5f
+    private var currentPhaseSeconds: Double = 0.0   // external phase-align hint (PIPBOY)
     private var currentProfile: PerformanceProfile = PerformanceProfile.MEDIUM
     private var currentAnimationType: LedAnimationType = LedAnimationType.AMBILIGHT
     private var currentSaturationBoost: Float = 0f
@@ -1074,6 +1076,11 @@ class LEDService : Service() {
             animation.setBreatheWhenCharging(currentBreatheWhenCharging)
             animation.setIndicateChargingSpeed(currentIndicateChargingSpeed)
             animation.setFlashWhenReady(currentFlashWhenReady)
+            // Phase-align deterministic effects (PIPBOY) to the caller's clock
+            // so their seeded flicker reproduces the source's exact state.
+            if (animation is PipBoyAnimation && currentPhaseSeconds > 0.0) {
+                animation.setPhaseOrigin(currentPhaseSeconds)
+            }
             animation.start()
             activeAnimationType = type
             Log.d(TAG, "startAnimation: STARTED type=$type, activeAnimationType=$activeAnimationType")
@@ -1179,6 +1186,7 @@ class LEDService : Service() {
         currentSpeed = speed
         currentSmoothness = smoothness
         currentSensitivity = sensitivity
+        currentPhaseSeconds = intent.getFloatExtra(EXTRA_EXTERNAL_PHASE_SECONDS, 0f).toDouble()
         isAppProfileSuppressed = false
 
         externalExpiryRunnable?.let(handler::removeCallbacks)

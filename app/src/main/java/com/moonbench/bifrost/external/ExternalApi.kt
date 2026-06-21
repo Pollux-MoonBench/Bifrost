@@ -30,6 +30,9 @@ object ExternalApi {
     const val EXTRA_INDEFINITE = "indefinite"
     const val EXTRA_PRIORITY = "priority"
     const val EXTRA_REQUEST_ID = "requestId"
+    // Optional: caller's elapsed effect-clock seconds, used by deterministic
+    // effects (e.g. PIPBOY) to phase-align their animation with the caller.
+    const val EXTRA_PHASE_SECONDS = "phaseSeconds"
 
     const val EXTRA_PROFILE_NAME = "profileName"
     const val EXTRA_PROFILE_REPLACE_IF_EXISTS = "replaceIfExists"
