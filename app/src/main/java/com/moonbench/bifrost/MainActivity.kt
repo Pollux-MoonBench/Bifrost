@@ -88,6 +88,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.io.File
+import com.moonbench.bifrost.plugins.PluginLaunchManager
+import com.moonbench.bifrost.plugins.PluginStoreActivity
 
 class MainActivity : AppCompatActivity() {
 
@@ -721,6 +723,7 @@ class MainActivity : AppCompatActivity() {
         setupPersistentNotificationSwitch()
         setupAdaptiveBrightnessSwitch()
         setupExternalApiSwitch()
+        setupPluginStore()
         setupThorScreenPreference()
         setupSettingsTabs()
         setupThemeFeature()
@@ -731,6 +734,20 @@ class MainActivity : AppCompatActivity() {
         updateParameterVisibility()
         enableRainbowBackground(LEDService.isRunning)
         showFirstLaunchAlertIfNeeded()
+
+        // Plugin store: one-time first-launch prompt to opt into update checks
+        // (off by default), then run the check if it was enabled. Posted so it
+        // layers above any first-launch alert rather than racing it.
+        window.decorView.post {
+            PluginLaunchManager.maybePromptForUpdateChecks(this)
+            PluginLaunchManager.maybeCheckAtLaunch(this) { updates ->
+                Toast.makeText(
+                    this,
+                    "${updates.size} plugin update(s) available — open the Plugin Store",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
 
         serviceToggle.setOnCheckedChangeListener { _, isChecked ->
             if (serviceController.isServiceTransitioning) return@setOnCheckedChangeListener
@@ -2958,6 +2975,12 @@ class MainActivity : AppCompatActivity() {
                     createLedServiceIntent()
                 }
             }
+        }
+    }
+
+    private fun setupPluginStore() {
+        findViewById<View>(R.id.pluginStoreButton)?.setOnClickListener {
+            startActivity(Intent(this, PluginStoreActivity::class.java))
         }
     }
 

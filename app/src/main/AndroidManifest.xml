@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <!-- Plugin store: fetch the catalogue + download bundles. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <permission
         android:name="com.moonbench.bifrost.permission.CONTROL_LEDS"
@@ -52,6 +54,11 @@
         <activity
             android:name=".StartupGuideActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".plugins.PluginStoreActivity"
+            android:exported="false"
+            android:label="Plugin Store" />
 
         <service
             android:name=".services.LEDService"

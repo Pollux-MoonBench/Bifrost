@@ -447,6 +447,13 @@
                             app:trackTint="@color/switch_track_tint" />
                     </LinearLayout>
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/pluginStoreButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Open Plugin Store" />
+
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
