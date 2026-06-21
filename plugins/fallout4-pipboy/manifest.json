@@ -1,0 +1,29 @@
+{
+  "schema": "bifrost_preset_bundle",
+  "version": 1,
+  "presets": [
+    {
+      "name": "Pip-Boy",
+      "animationType": "PIPBOY",
+      "performanceProfile": "HIGH",
+      "color": -16711936,
+      "rightColor": -16711936,
+      "brightness": 255,
+      "speed": 0.5,
+      "smoothness": 0.5,
+      "sensitivity": 0.5,
+      "saturationBoost": 0.0,
+      "useCustomSampling": false,
+      "useSingleColor": true,
+      "breatheWhenCharging": false,
+      "indicateChargingSpeed": false,
+      "flashWhenReady": false,
+      "isAppProfileDefault": true,
+      "ragnarokAccepted": false,
+      "icon": "DISPLAY"
+    }
+  ],
+  "appProfileMappings": {
+    "com.bethsoft.falloutcompanionapp": "Pip-Boy"
+  }
+}

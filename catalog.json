@@ -1,0 +1,19 @@
+{
+  "schema": "bifrost_plugin_catalog",
+  "version": 1,
+  "plugins": [
+    {
+      "id": "fallout4-pipboy",
+      "name": "Fallout 4 Pip-Boy",
+      "author": "MoonBench / Strip-Boy",
+      "version": 1,
+      "versionName": "1.0",
+      "description": "Sync your stick LEDs to the Fallout 4 Pip-Boy's green-phosphor CRT — the breathing phosphor glow, the flicker, and the channel-swap static. Installs a Pip-Boy preset and auto-activates it whenever the Fallout 4 companion app is in front. Pair with the Strip-Boy patch for live, per-frame screen sync.",
+      "icon": "DISPLAY",
+      "targetPackage": "com.bethsoft.falloutcompanionapp",
+      "minBifrostVersionCode": 9,
+      "bundleUrl": "https://raw.githubusercontent.com/KuriGohan-Kamehameha/bifrost-plugins/main/plugins/fallout4-pipboy/fallout4-pipboy-1.bfplugin",
+      "bundleSha256": "d190da0116beb0e2424a91a9e488e96daf98b584a3e38bbcd43385b8f6daf0b7"
+    }
+  ]
+}
