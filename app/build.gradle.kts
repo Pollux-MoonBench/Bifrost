@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -19,12 +21,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = file("${rootProject.projectDir}/release-key.jks")
-            storePassword = "watne123"
-            keyAlias = "bifrost"
-            keyPassword = "watne123"
+    // Release signing is externalized to a gitignored keystore.properties so no
+    // credentials live in version control. Whoever has the keystore + properties
+    // (e.g. the maintainer's local checkout) produces a signed release; everyone
+    // else — including CI and other contributors — builds an unsigned release
+    // and signs separately. Falls back gracefully when the file is absent.
+    val keystorePropsFile = rootProject.file("keystore.properties")
+    val hasReleaseSigning = keystorePropsFile.exists()
+    if (hasReleaseSigning) {
+        val keystoreProps = Properties()
+        keystorePropsFile.inputStream().use { keystoreProps.load(it) }
+        signingConfigs {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
         }
     }
 
@@ -36,7 +49,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

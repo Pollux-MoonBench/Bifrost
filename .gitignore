@@ -19,3 +19,6 @@ local.properties
 release-key.jks
 *.jks
 *.keystore
+
+# Release signing credentials — never commit
+keystore.properties
