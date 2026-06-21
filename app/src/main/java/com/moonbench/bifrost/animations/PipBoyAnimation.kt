@@ -55,7 +55,7 @@ class PipBoyAnimation(
         // brightness pop (no spatial component). The plugin runs the envelope from
         // the fed anchor; BURST_DURATION_MS ≈ the screen's fBurstState fade time.
         const val BURST_DURATION_MS = 150.0   // flash length
-        const val BURST_GAIN = 0.5            // how hard the pop brightens the LEDs
+        const val BURST_GAIN = 0.5            // how deep the burst DIMS the LEDs
 
         // Pip-Boy phosphor green — the default when no real colour has been
         // supplied yet (e.g. before the in-game HUD EffectColor arrives).
@@ -67,9 +67,9 @@ class PipBoyAnimation(
         // running animation WITHOUT a restart, so they never fight the
         // heartbeat re-anchor or the external-API rate limiter.
         const val PULSE_MS = 180L
-        const val PULSE_MUL = 3.0             // brightness multiplier at the pop's peak
+        const val PULSE_DIM = 0.4             // menu-nav DIP floor (dims to this, then settles)
         const val STATIC_MS = 380L
-        const val STATIC_MUL = 3.0            // brightness multiplier during the scramble
+        const val STATIC_MUL = 3.0            // scramble brightness — the ONE effect that brightens
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -192,26 +192,30 @@ class PipBoyAnimation(
             val flickering = externalFlickering
             val burst = burstAmount(nowMs)
 
-            // Base brightness factor common to all zones: pulse + flicker + burst.
-            val pulse = 1.0 + perlin1d(t * PULSE_RATE) * PULSE_INTENSITY
-            var baseFactor = 0.5 + (pulse - 1.0)   // 0.5..1.0
+            // Base brightness factor: rest at full, DROP to deliver each effect
+            // (per Sat — every effect dims rather than brightens; the static
+            // scramble below is the sole exception). The breath dips the LEDs,
+            // the flicker stutters them down, the burst is a brief dark flash.
+            var baseFactor = 1.0 - perlin1d(t * PULSE_RATE) * PULSE_INTENSITY   // 1.0 → 0.5 breath dip
             if (flickering) {
                 val shimmer = perlin1d(t * FLICKER_FREQUENCY)
                 baseFactor *= (1.0 - shimmer * FLICKER_DEPTH)   // downward stutter
             }
-            if (burst > 0.0) baseFactor += burst * BURST_GAIN   // upward flash
+            if (burst > 0.0) baseFactor -= burst * BURST_GAIN   // downward flash (dip)
 
             // Transient nav reactions (menu pulse / channel-swap static),
             // applied on top of the base — no restart, set out-of-band by
             // triggerPulse()/triggerStatic().
             when {
                 nowMs < staticUntilMs -> {
+                    // The 5%-on-nav channel-swap scramble — the ONE effect that
+                    // brightens (a deliberate dramatic flash). Sat's exception.
                     baseFactor = Math.random()        // bright random scramble
                     brightnessMul = STATIC_MUL
                 }
                 nowMs < pulseUntilMs -> {
                     val k = (pulseUntilMs - nowMs).toDouble() / PULSE_MS   // 1→0
-                    brightnessMul = 1.0 + k * (PULSE_MUL - 1.0)            // pop → settle
+                    brightnessMul = PULSE_DIM + (1.0 - k) * (1.0 - PULSE_DIM)   // dip → settle
                 }
                 else -> brightnessMul = 1.0
             }
