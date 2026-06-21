@@ -12,7 +12,7 @@
       "icon": "DISPLAY",
       "targetPackage": "com.bethsoft.falloutcompanionapp",
       "minBifrostVersionCode": 9,
-      "bundleUrl": "https://raw.githubusercontent.com/KuriGohan-Kamehameha/bifrost-plugins/main/plugins/fallout4-pipboy/fallout4-pipboy-1.bfplugin",
+      "bundleUrl": "https://raw.githubusercontent.com/Pollux-MoonBench/Bifrost/plugin-catalog/plugins/fallout4-pipboy/fallout4-pipboy-1.bfplugin",
       "bundleSha256": "d190da0116beb0e2424a91a9e488e96daf98b584a3e38bbcd43385b8f6daf0b7"
     }
   ]

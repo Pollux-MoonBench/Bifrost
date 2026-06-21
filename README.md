@@ -1,8 +1,12 @@
-# bifrost-plugins
+# Bifrost plugin catalogue
 
-The plugin catalogue for [Bifrost](https://github.com/KuriGohan-Kamehameha/Bifrost).
+The plugin catalogue for [Bifrost](https://github.com/Pollux-MoonBench/Bifrost),
+served from the dedicated **`plugin-catalog`** branch of the upstream repo
+(content-only, like a `gh-pages` branch — it carries no app source and is never
+deleted when feature branches merge).
+
 Bifrost's **Plugin Store** (Settings → *Open Plugin Store*) fetches `catalog.json`
-from this repo's `main` branch and installs the bundles it lists.
+from this branch and installs the bundles it lists.
 
 ## How it works
 
@@ -14,7 +18,7 @@ up the app→preset mapping, so the effect auto-activates for its target app.
 Bifrost reads the catalogue from:
 
 ```
-https://raw.githubusercontent.com/KuriGohan-Kamehameha/bifrost-plugins/main/catalog.json
+https://raw.githubusercontent.com/Pollux-MoonBench/Bifrost/plugin-catalog/catalog.json
 ```
 
 (Override in the Plugin Store screen for a fork or local server.)
