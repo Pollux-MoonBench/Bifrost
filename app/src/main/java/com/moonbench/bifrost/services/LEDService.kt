@@ -25,6 +25,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
 import android.util.Log
@@ -106,6 +107,11 @@ class LEDService : Service() {
         const val EXTRA_EXTERNAL_PHASE_SECONDS = "external.phaseSeconds"
         const val EXTRA_EXTERNAL_FLICKERING = "external.flickering"
         const val EXTRA_EXTERNAL_BURST_WALL_MS = "external.burstWallMs"
+        // PIPBOY wake-lock renewal window. Re-acquired on every 500ms heartbeat
+        // while active; if the caller stops heartbeating (e.g. dies), the lock
+        // auto-releases this long after — a backstop on top of the explicit
+        // release in revertExternalOverride/cleanupAndStop.
+        private const val PIPBOY_WAKELOCK_TIMEOUT_MS = 3_000L
 
         const val TERMINATOR_DURATION = "DURATION"
         const val TERMINATOR_NEXT_COMMAND = "NEXT_COMMAND"
@@ -144,6 +150,9 @@ class LEDService : Service() {
     private var currentPhaseSeconds: Double = 0.0   // external phase-align hint (PIPBOY)
     private var currentFlickering: Boolean = false   // external flicker state (PIPBOY)
     private var currentBurstWallMs: Long = 0L        // external burst anchor (PIPBOY)
+    // Held only while a PIPBOY override is active: keeps the CPU from powering
+    // down between events so the first action after a quiet spell isn't delayed.
+    private var pipboyWakeLock: PowerManager.WakeLock? = null
     private var currentProfile: PerformanceProfile = PerformanceProfile.MEDIUM
     private var currentAnimationType: LedAnimationType = LedAnimationType.AMBIENT
     private var currentSaturationBoost: Float = 0f
@@ -967,6 +976,7 @@ class LEDService : Service() {
             isAppProfileSuppressed = false
             activeExternalOverride = null
             savedStateBeforeExternalOverride = null
+            releasePipboyWakeLock()
 
             stopCurrentAnimation()
 
@@ -1197,9 +1207,6 @@ class LEDService : Service() {
                 // flicker/vscan in phase without a restart.
                 val phase = intent.getFloatExtra(EXTRA_EXTERNAL_PHASE_SECONDS, 0f).toDouble()
                 if (anim is PipBoyAnimation && phase > 0.0) anim.reanchor(phase)
-                // Mirror the screen's vertical-scan bar: feed the latest roll
-                // anchor every heartbeat so event-triggered scans (which a seed
-                // can't reproduce) still drive the LED bar.
                 // Mirror flicker on/off + burst flashes — event-driven, since the
                 // screen's schedule (game triggers + multi-instance) isn't replayable.
                 if (anim is PipBoyAnimation) {
@@ -1208,6 +1215,7 @@ class LEDService : Service() {
                     if (burstWall > 0L) anim.setBurst(burstWall)
                 }
             }
+            refreshPipboyWakeLock()   // renew while PIPBOY stays active
             return
         }
 
@@ -1272,7 +1280,32 @@ class LEDService : Service() {
             handler.postDelayed(expiry, terminator.millis)
         }
 
+        refreshPipboyWakeLock()   // acquire if this override is PIPBOY
         restartAnimationForCurrentState(force = true)
+    }
+
+    /**
+     * Acquire/renew the PIPBOY wake-lock when a PIPBOY override is active, so the
+     * CPU stays available between events and the first action after an idle spell
+     * isn't delayed by power-down. Re-acquiring with a timeout renews it; called
+     * on each heartbeat. No-op for non-PIPBOY effects.
+     */
+    private fun refreshPipboyWakeLock() {
+        if (activeExternalOverride?.effect != LedAnimationType.PIPBOY) {
+            releasePipboyWakeLock()
+            return
+        }
+        val wl = pipboyWakeLock ?: run {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+            pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bifrost:pipboy")
+                .also { it.setReferenceCounted(false); pipboyWakeLock = it }
+        }
+        runCatching { wl.acquire(PIPBOY_WAKELOCK_TIMEOUT_MS) }
+            .onFailure { Log.w(TAG, "refreshPipboyWakeLock: acquire failed", it) }
+    }
+
+    private fun releasePipboyWakeLock() {
+        pipboyWakeLock?.let { if (it.isHeld) runCatching { it.release() } }
     }
 
     private fun handleExternalClear(callerPkg: String?) {
@@ -1300,6 +1333,7 @@ class LEDService : Service() {
         val snapshot = savedStateBeforeExternalOverride
         activeExternalOverride = null
         savedStateBeforeExternalOverride = null
+        releasePipboyWakeLock()
 
         if (snapshot != null) {
             currentAnimationType = snapshot.animationType
