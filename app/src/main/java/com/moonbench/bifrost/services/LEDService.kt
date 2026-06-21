@@ -65,6 +65,11 @@ class LEDService : Service() {
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
         private const val ACTIVITY_CHECK_INTERVAL_MS = 2000L
         private const val ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS = 700L
+        // An external override is a renewable lease: the owning app must keep
+        // refreshing it (heartbeat). If it stops — app closed, backgrounded, or
+        // crashed — the lease goes stale and Bifrost cleanly reverts. Must
+        // comfortably exceed the caller's heartbeat interval.
+        private const val EXTERNAL_LEASE_TIMEOUT_MS = 6000L
         private const val TRANSITION_RETRY_DELAY_MS = 200L
         private const val TRANSITION_START_DELAY_MS = 100L
         private const val PROJECTION_RESTART_DELAY_MS = 150L
@@ -160,6 +165,7 @@ class LEDService : Service() {
     private var isAppProfileSuppressed: Boolean = false
 
     private var activeExternalOverride: ExternalOverrideState? = null
+    private var externalOverrideLastSeenMs: Long = 0L   // lease renewal timestamp
     private var externalExpiryRunnable: Runnable? = null
     private var savedStateBeforeExternalOverride: ExternalOverrideSnapshot? = null
 
@@ -240,6 +246,13 @@ class LEDService : Service() {
                 cleanupAndStop()
             } else {
                 Log.d(TAG, "activityCheckRunnable: tick — appProfileEnabled=${appProfileManager.isEnabled}, currentAnimationType=$currentAnimationType, activeAnimationType=$activeAnimationType, currentAnimation=${currentAnimation != null}, isTransitioning=${isTransitioning.get()}")
+                // Lease watchdog: an override whose owner stopped renewing it
+                // (closed/backgrounded/crashed) is cleanly reverted.
+                if (activeExternalOverride != null &&
+                    System.currentTimeMillis() - externalOverrideLastSeenMs > EXTERNAL_LEASE_TIMEOUT_MS) {
+                    Log.i(TAG, "activityCheckRunnable: external override lease expired → reverting")
+                    revertExternalOverride()
+                }
                 checkAutoProfileSwitch()
                 val nextDelay = if (appProfileManager.isEnabled) {
                     ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
@@ -1140,6 +1153,30 @@ class LEDService : Service() {
         val speed = intent.getFloatExtra(EXTRA_EXTERNAL_SPEED, currentSpeed).coerceIn(0f, 1f)
         val smoothness = intent.getFloatExtra(EXTRA_EXTERNAL_SMOOTHNESS, currentSmoothness).coerceIn(0f, 1f)
         val sensitivity = intent.getFloatExtra(EXTRA_EXTERNAL_SENSITIVITY, currentSensitivity).coerceIn(0f, 1f)
+
+        // Renew the lease on every command from the owner.
+        externalOverrideLastSeenMs = System.currentTimeMillis()
+
+        // Keep-alive / live-update fast path: the same caller is renewing its
+        // already-running override of the same effect (heartbeat, or a colour
+        // tweak). Nudge the live animation's colour/brightness via setters —
+        // no restart, so the flicker never hitches. Phase was aligned once at
+        // start; both sides then advance on real time. A new caller or an
+        // effect change falls through to the full snapshot + restart path.
+        if (current != null && current.callerPackage == callerPkg &&
+            current.effect == effect && activeAnimationType == effect &&
+            currentAnimation != null
+        ) {
+            currentColor = color
+            currentRightColor = rightColor
+            currentBrightness = intensity
+            currentAnimation?.let { anim ->
+                anim.setTargetColor(color)
+                anim.setTargetRightColor(rightColor)
+                anim.setTargetBrightness(intensity)
+            }
+            return
+        }
 
         val terminator: Terminator = when (intent.getStringExtra(EXTRA_EXTERNAL_TERMINATOR)) {
             TERMINATOR_DURATION -> Terminator.Duration(

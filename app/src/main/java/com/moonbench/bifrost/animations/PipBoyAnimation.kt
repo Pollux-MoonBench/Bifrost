@@ -79,6 +79,7 @@ class PipBoyAnimation(
     private var currentRightColor: Int = greenIfUnset(initialRightColor)
     private var targetBrightness: Int = 255
     private var loggedColor = false
+    private var loggedRgb = false
 
     /** Default to Pip-Boy green when the supplied colour is black/near-black. */
     private fun greenIfUnset(c: Int): Int =
@@ -199,6 +200,13 @@ class PipBoyAnimation(
             val rr = (Color.red(currentRightColor) * ledFactor).roundToInt().coerceIn(0, 255)
             val rg = (Color.green(currentRightColor) * ledFactor).roundToInt().coerceIn(0, 255)
             val rb = (Color.blue(currentRightColor) * ledFactor).roundToInt().coerceIn(0, 255)
+
+            if (!loggedRgb) {
+                loggedRgb = true
+                android.util.Log.i("BIBI",
+                    "PipBoy RGB out: (%d,%d,%d) ledFactor=%.3f targetBright=%d (brightness via RGB; 4th field=255 ignored)"
+                        .format(lr, lg, lb, ledFactor, targetBrightness))
+            }
 
             ledController.setLedColor(lr, lg, lb,
                 leftTop = true, leftBottom = true,
