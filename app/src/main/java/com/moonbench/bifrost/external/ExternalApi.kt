@@ -14,6 +14,15 @@ object ExternalApi {
     const val ACTION_INSTALL_PROFILE = "com.moonbench.bifrost.api.ACTION_INSTALL_PROFILE"
     const val ACTION_UNINSTALL_PROFILE = "com.moonbench.bifrost.api.ACTION_UNINSTALL_PROFILE"
 
+    // Lightweight transient trigger — modulates the running effect in place
+    // (a brief pulse or static scramble) without replacing the override.
+    // Gate-checked but not rate-limited, so rapid menu navigation lands every
+    // time. Currently consumed by the PIPBOY effect (triggerPulse/Static).
+    const val ACTION_PULSE = "com.moonbench.bifrost.api.ACTION_PULSE"
+    const val EXTRA_PULSE_KIND = "pulseKind"
+    const val PULSE_KIND_PULSE = "PULSE"
+    const val PULSE_KIND_STATIC = "STATIC"
+
     const val API_VERSION = 1
 
     const val EXTRA_API_VERSION = "apiVersion"

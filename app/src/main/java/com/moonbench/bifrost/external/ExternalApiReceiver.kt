@@ -35,6 +35,19 @@ class ExternalApiReceiver : BroadcastReceiver() {
             return
         }
 
+        // Transient trigger fast-path — gate-checked but NOT rate-limited or
+        // validated. It's a cheap in-place modulation of the running effect;
+        // rate-limiting it would defeat the point (rapid menu navigation).
+        if (intent.action == ExternalApi.ACTION_PULSE) {
+            val kind = intent.getStringExtra(ExternalApi.EXTRA_PULSE_KIND)
+                ?: ExternalApi.PULSE_KIND_PULSE
+            forwardToService(context, LEDService.ACTION_EXTERNAL_PULSE) {
+                putExtra(LEDService.EXTRA_EXTERNAL_PULSE_KIND, kind)
+            }
+            setResult(ExternalApi.RESULT_ACCEPTED, null)
+            return
+        }
+
         if (!ExternalApiRateLimiter.allow(callerUid)) {
             setResult(ExternalApi.RESULT_REJECTED_RATE_LIMITED, null)
             return

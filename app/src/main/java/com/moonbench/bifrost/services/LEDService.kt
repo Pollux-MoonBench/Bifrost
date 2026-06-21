@@ -85,6 +85,8 @@ class LEDService : Service() {
         const val ACTION_SUPPLY_PROJECTION = "com.moonbench.bifrost.SUPPLY_PROJECTION"
         const val ACTION_EXTERNAL_DISPLAY = "com.moonbench.bifrost.EXTERNAL_DISPLAY"
         const val ACTION_EXTERNAL_CLEAR = "com.moonbench.bifrost.EXTERNAL_CLEAR"
+        const val ACTION_EXTERNAL_PULSE = "com.moonbench.bifrost.EXTERNAL_PULSE"
+        const val EXTRA_EXTERNAL_PULSE_KIND = "external.pulseKind"
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
         const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
@@ -314,6 +316,11 @@ class LEDService : Service() {
 
         if (intent.action == ACTION_EXTERNAL_CLEAR) {
             handleExternalClear(intent.getStringExtra(EXTRA_EXTERNAL_CALLER_PACKAGE))
+            return START_NOT_STICKY
+        }
+
+        if (intent.action == ACTION_EXTERNAL_PULSE) {
+            handleExternalPulse(intent.getStringExtra(EXTRA_EXTERNAL_PULSE_KIND))
             return START_NOT_STICKY
         }
 
@@ -1255,6 +1262,16 @@ class LEDService : Service() {
             return
         }
         revertExternalOverride()
+    }
+
+    /**
+     * Transient trigger — a brief in-place modulation of the running effect
+     * (no restart, no override change). Only the PIPBOY effect consumes it;
+     * for any other animation it's a harmless no-op.
+     */
+    private fun handleExternalPulse(kind: String?) {
+        val anim = currentAnimation as? PipBoyAnimation ?: return
+        if (kind == "STATIC") anim.triggerStatic() else anim.triggerPulse()
     }
 
     private fun revertExternalOverride() {

@@ -101,6 +101,15 @@ class PipBoyAnimation(
         // supplied yet (e.g. before the in-game HUD EffectColor arrives).
         const val PIPBOY_GREEN = 0xFF00FF00.toInt()
         const val DARK_SUM_THRESHOLD = 24     // r+g+b below this ⇒ treat as unset
+
+        // Transient nav reactions, triggered out-of-band via ACTION_PULSE
+        // (Strip-Boy menu navigation). These modulate brightness on top of the
+        // running animation WITHOUT a restart, so they never fight the
+        // heartbeat re-anchor or the external-API rate limiter.
+        const val PULSE_MS = 180L
+        const val PULSE_MUL = 3.0             // brightness multiplier at the pop's peak
+        const val STATIC_MS = 380L
+        const val STATIC_MUL = 3.0            // brightness multiplier during the scramble
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -135,6 +144,13 @@ class PipBoyAnimation(
     private var vscanRng = VSCAN_SEED
     private var fVScanDelay = VSCAN_INITIAL_DELAY
     private var fVScanState = VSCAN_IDLE
+
+    // Transient nav reactions (set by triggerPulse/triggerStatic, read each
+    // tick). elapsedRealtime deadlines; volatile since the triggers fire from
+    // the service/broadcast path while the runnable reads on the LED looper.
+    @Volatile private var pulseUntilMs = 0L
+    @Volatile private var staticUntilMs = 0L
+    private var brightnessMul = 1.0   // per-tick brightness scale (1.0 = resting)
 
     /** One LCG draw mapped to [lo, hi). Identical maths screen-side. */
     private fun seededRange(lo: Double, hi: Double): Double {
@@ -183,7 +199,7 @@ class PipBoyAnimation(
         color: Int, baseFactor: Double, boost: Double,
         lt: Boolean, lb: Boolean, rt: Boolean, rb: Boolean
     ) {
-        val f = ((baseFactor + boost) * (targetBrightness / 255.0)).coerceIn(0.0, 1.0)
+        val f = ((baseFactor + boost) * (targetBrightness / 255.0) * brightnessMul).coerceIn(0.0, 1.0)
         val r = (Color.red(color) * f).roundToInt().coerceIn(0, 255)
         val g = (Color.green(color) * f).roundToInt().coerceIn(0, 255)
         val b = (Color.blue(color) * f).roundToInt().coerceIn(0, 255)
@@ -224,6 +240,14 @@ class PipBoyAnimation(
         fVScanDelay = VSCAN_INITIAL_DELAY
         fVScanState = VSCAN_IDLE
     }
+
+    /** Brief brightness pop for a menu-item switch. Modulates the running
+     *  animation in place — no restart, so it can't be clobbered by the
+     *  heartbeat re-anchor and never trips the rate limiter. */
+    fun triggerPulse() { pulseUntilMs = SystemClock.elapsedRealtime() + PULSE_MS }
+
+    /** TV-static scramble for the dramatic vertical-hold "channel swap" roll. */
+    fun triggerStatic() { staticUntilMs = SystemClock.elapsedRealtime() + STATIC_MS }
 
     override fun setTargetColor(color: Int) { targetColor = greenIfUnset(color) }
     override fun setTargetRightColor(color: Int) { targetRightColor = greenIfUnset(color) }
@@ -302,7 +326,12 @@ class PipBoyAnimation(
             // Flicker + burst + vscan schedulers — deterministic, seeded.
             if (pipBurst > 0.0) pipBurst = (pipBurst - dt * BURST_FADE).coerceAtLeast(0.0)
             advanceFlicker(dt)
+            val vscanWasActive = fVScanState >= VSCAN_START
             advanceVScan(dt)
+            // DIAGNOSTIC: log each vscan roll start with the (locked) screen clock.
+            if (!vscanWasActive && fVScanState >= VSCAN_START) {
+                android.util.Log.i("BIBI", "VSCAN_ROLL pluginT=%.2f".format(t))
+            }
 
             // Base brightness factor common to all zones: pulse + flicker + burst.
             val pulse = 1.0 + perlin1d(t * PULSE_RATE) * PULSE_INTENSITY
@@ -312,6 +341,22 @@ class PipBoyAnimation(
                 baseFactor *= (1.0 - shimmer * FLICKER_DEPTH)   // downward stutter
             }
             if (pipBurst > 0.0) baseFactor += pipBurst * BURST_GAIN   // upward flash
+
+            // Transient nav reactions (menu pulse / channel-swap static),
+            // applied on top of the base — no restart, set out-of-band by
+            // triggerPulse()/triggerStatic().
+            val nowMs = SystemClock.elapsedRealtime()
+            when {
+                nowMs < staticUntilMs -> {
+                    baseFactor = Math.random()        // bright random scramble
+                    brightnessMul = STATIC_MUL
+                }
+                nowMs < pulseUntilMs -> {
+                    val k = (pulseUntilMs - nowMs).toDouble() / PULSE_MS   // 1→0
+                    brightnessMul = 1.0 + k * (PULSE_MUL - 1.0)            // pop → settle
+                }
+                else -> brightnessMul = 1.0
+            }
 
             // Vertical-scan: while a bar is rolling, brighten each zone as the
             // bar passes its u-position (leftTop→leftBottom→rightTop→rightBottom).
