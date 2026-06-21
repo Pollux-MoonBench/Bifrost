@@ -56,6 +56,14 @@ class PipBoyAnimation(
         const val FLICKER_DEPTH = 0.55        // max downward dim during a stutter
         const val FLICKER_INITIAL_DELAY = 5.0 // fFlickerDelay field default on screen
 
+        // Burst — the screen's TriggerBurst(0.25, 2) fired on a 15% roll after
+        // each flicker. Pure brightness (no spatial component) → a clean LED
+        // pop. The 15% roll is already in our seeded draw sequence.
+        const val BURST_CHANCE = 0.15
+        const val BURST_TRIGGER = 0.25        // initial fBurstState
+        const val BURST_FADE = 2.0            // fBurstFadeRate, units/sec
+        const val BURST_GAIN = 2.0            // how hard the pop brightens the LEDs
+
         // Shared flicker RNG — MUST stay bit-identical with the screen side
         // (Strip-Boy's FlickerSeed Cecil patch). Same LCG, same seed, same
         // draw order ⇒ the sticks reproduce the screen's exact flicker
@@ -63,6 +71,29 @@ class PipBoyAnimation(
         const val FLICKER_SEED = 0x50B0FFu    // "PIPBOY" seed; mirrored screen-side
         const val LCG_MUL = 1664525u
         const val LCG_ADD = 1013904223u
+
+        // Vertical-scan (the CRT rolling bar). Independent seeded RNG so its
+        // draws never perturb the flicker sequence. Mirrors the screen's
+        // PipboyPostEffect vscan: a bar sweeps fVScanState -0.9→1.5 over
+        // ~1.2s, scheduled Random(1..5)s apart. Rendered spatially across the
+        // four stick LEDs: as the bar descends it lights leftTop → leftBottom
+        // → (mid-screen gap) → rightTop → rightBottom. Left stick = screen's
+        // top third, right stick = bottom third; top LED leads bottom per stick.
+        const val VSCAN_SEED = 0xC0FFEEu      // mirrored screen-side
+        const val VSCAN_RATE = 2.0            // fVScanRate
+        const val VSCAN_INITIAL_DELAY = 1.0   // fVScanDelay field default on screen
+        const val VSCAN_MIN_DELAY = 1.0       // fVScanDelayMin
+        const val VSCAN_MAX_DELAY = 5.0       // fVScanDelayMax
+        const val VSCAN_START = -0.9          // bar entry position
+        const val VSCAN_END = 1.5             // bar exit position
+        const val VSCAN_IDLE = -1.0           // not rolling
+        const val VSCAN_WIDTH = 0.28          // zone catchment half-width (in u)
+        const val VSCAN_GAIN = 0.9            // brighten depth as the bar passes
+        // Zone centres along the normalised bar travel u∈[0,1] (top→bottom).
+        const val U_LEFT_TOP = 0.0
+        const val U_LEFT_BOTTOM = 0.33
+        const val U_RIGHT_TOP = 0.67
+        const val U_RIGHT_BOTTOM = 1.0
 
         // Pip-Boy phosphor green — the default when no real colour has been
         // supplied yet (e.g. before the in-game HUD EffectColor arrives).
@@ -96,12 +127,66 @@ class PipBoyAnimation(
     private var fFlickerDelay = FLICKER_INITIAL_DELAY
     private var flickerRng = FLICKER_SEED
     private var lastTickT = 0.0
+    private var pipBurst = 0.0    // decaying burst-flash envelope (0..BURST_TRIGGER)
+
+    // Vertical-scan sim (independent seeded RNG; mirrors the screen).
+    private var vscanRng = VSCAN_SEED
+    private var fVScanDelay = VSCAN_INITIAL_DELAY
+    private var fVScanState = VSCAN_IDLE
 
     /** One LCG draw mapped to [lo, hi). Identical maths screen-side. */
     private fun seededRange(lo: Double, hi: Double): Double {
         flickerRng = flickerRng * LCG_MUL + LCG_ADD     // UInt overflow == mod 2^32
         val frac = flickerRng.toDouble() / 4294967296.0  // 2^32
         return lo + frac * (hi - lo)
+    }
+
+    /** vscan's independent LCG draw. Same maths, separate state + seed. */
+    private fun vscanRange(lo: Double, hi: Double): Double {
+        vscanRng = vscanRng * LCG_MUL + LCG_ADD
+        val frac = vscanRng.toDouble() / 4294967296.0
+        return lo + frac * (hi - lo)
+    }
+
+    /**
+     * Advance the vscan sim by dt, mirroring PipboyPostEffect.Update's vscan
+     * block exactly (schedule → sweep → idle-countdown), drawing from the
+     * vscan RNG in the same order as the screen.
+     */
+    private fun advanceVScan(dt: Double) {
+        if (fVScanDelay <= 0.0) {
+            fVScanDelay = vscanRange(VSCAN_MIN_DELAY, VSCAN_MAX_DELAY)
+            fVScanState = VSCAN_START
+        }
+        if (fVScanState >= VSCAN_START) {
+            fVScanState += VSCAN_RATE * dt
+            if (fVScanState > VSCAN_END) fVScanState = VSCAN_IDLE
+        } else {
+            fVScanDelay -= dt
+        }
+    }
+
+    /** Per-zone vscan brighten boost for a zone centred at u-position [center]. */
+    private fun vscanBoost(center: Double): Double {
+        if (fVScanState < VSCAN_START) return 0.0   // not rolling
+        val u = (fVScanState - VSCAN_START) / (VSCAN_END - VSCAN_START)  // 0..1, top→bottom
+        val d = kotlin.math.abs(u - center)
+        if (d >= VSCAN_WIDTH) return 0.0
+        return (1.0 - d / VSCAN_WIDTH) * VSCAN_GAIN
+    }
+
+    /** Scale [color] by (baseFactor + boost) × intensity and write to the
+     *  selected LED zone(s). Brightness is in the RGB magnitude. */
+    private fun emitZone(
+        color: Int, baseFactor: Double, boost: Double,
+        lt: Boolean, lb: Boolean, rt: Boolean, rb: Boolean
+    ) {
+        val f = ((baseFactor + boost) * (targetBrightness / 255.0)).coerceIn(0.0, 1.0)
+        val r = (Color.red(color) * f).roundToInt().coerceIn(0, 255)
+        val g = (Color.green(color) * f).roundToInt().coerceIn(0, 255)
+        val b = (Color.blue(color) * f).roundToInt().coerceIn(0, 255)
+        ledController.setLedColor(r, g, b,
+            leftTop = lt, leftBottom = lb, rightTop = rt, rightBottom = rb)
     }
 
     /**
@@ -121,7 +206,8 @@ class PipBoyAnimation(
                 fFlickerDelay += seededRange(FLICKER_MIN_DURATION, FLICKER_MAX_DURATION)
             } else {
                 fFlickerDelay += seededRange(FLICKER_MIN_DELAY, FLICKER_MAX_DELAY)
-                seededRange(0.0, 1.0)   // burst-chance roll — drawn to keep RNG aligned
+                // burst-chance roll (15%) — mirrors the screen's TriggerBurst.
+                if (seededRange(0.0, 1.0) < BURST_CHANCE) pipBurst = BURST_TRIGGER
             }
         }
     }
@@ -131,6 +217,10 @@ class PipBoyAnimation(
         fFlickerDelay = FLICKER_INITIAL_DELAY
         flickerRng = FLICKER_SEED
         lastTickT = 0.0
+        pipBurst = 0.0
+        vscanRng = VSCAN_SEED
+        fVScanDelay = VSCAN_INITIAL_DELAY
+        fVScanState = VSCAN_IDLE
     }
 
     override fun setTargetColor(color: Int) { targetColor = greenIfUnset(color) }
@@ -148,12 +238,21 @@ class PipBoyAnimation(
     fun setPhaseOrigin(afSecondsSinceTheirOrigin: Double) {
         originMs = SystemClock.elapsedRealtime() -
             (afSecondsSinceTheirOrigin * 1000.0).toLong()
-        // Re-seed and fast-forward the flicker sim to the screen's clock so
-        // the sticks land on the screen's exact current flicker state, then
-        // continue in lockstep.
+        // Re-seed and fast-forward both sims to the screen's clock so the
+        // sticks land on the screen's exact current flicker + vscan state,
+        // then continue in lockstep. vscan integrates position, so step it in
+        // small fixed increments to avoid overshoot (flicker is countdown-based
+        // and step-size-invariant, but stepping it together keeps draw order).
         resetFlicker()
-        if (afSecondsSinceTheirOrigin > 0.0) {
-            advanceFlicker(afSecondsSinceTheirOrigin)
+        var acc = 0.0
+        val step = 1.0 / 120.0
+        var guard = 0
+        while (acc < afSecondsSinceTheirOrigin && guard < 1_000_000) {
+            guard++
+            val d = kotlin.math.min(step, afSecondsSinceTheirOrigin - acc)
+            advanceFlicker(d)
+            advanceVScan(d)
+            acc += d
         }
         lastTickT = afSecondsSinceTheirOrigin
     }
@@ -174,46 +273,41 @@ class PipBoyAnimation(
             }
 
             val t = (SystemClock.elapsedRealtime() - originMs) / 1000.0
-
-            // Flicker scheduler — deterministic countdown driven by the shared
-            // seeded LCG, advanced by real elapsed time. Mirrors the screen.
-            advanceFlicker(t - lastTickT)
+            val dt = t - lastTickT
             lastTickT = t
 
-            // Pulse: 1.0..1.5 → normalise to a 0.5..1.0 LED envelope.
+            // Flicker + burst + vscan schedulers — deterministic, seeded.
+            if (pipBurst > 0.0) pipBurst = (pipBurst - dt * BURST_FADE).coerceAtLeast(0.0)
+            advanceFlicker(dt)
+            advanceVScan(dt)
+
+            // Base brightness factor common to all zones: pulse + flicker + burst.
             val pulse = 1.0 + perlin1d(t * PULSE_RATE) * PULSE_INTENSITY
-            var factor = 0.5 + (pulse - 1.0)   // pulse-1.0 ∈ [0,0.5] → factor ∈ [0.5,1.0]
-
-            // Flicker: downward stutter only.
+            var baseFactor = 0.5 + (pulse - 1.0)   // 0.5..1.0
             if (flickering) {
-                val shimmer = perlin1d(t * FLICKER_FREQUENCY)   // 0..1, fast
-                factor *= (1.0 - shimmer * FLICKER_DEPTH)
+                val shimmer = perlin1d(t * FLICKER_FREQUENCY)
+                baseFactor *= (1.0 - shimmer * FLICKER_DEPTH)   // downward stutter
             }
+            if (pipBurst > 0.0) baseFactor += pipBurst * BURST_GAIN   // upward flash
 
-            val globalScale = targetBrightness / 255.0
-            val ledFactor = (factor * globalScale).coerceIn(0.0, 1.0)
-
-            val lr = (Color.red(currentColor) * ledFactor).roundToInt().coerceIn(0, 255)
-            val lg = (Color.green(currentColor) * ledFactor).roundToInt().coerceIn(0, 255)
-            val lb = (Color.blue(currentColor) * ledFactor).roundToInt().coerceIn(0, 255)
-
-            val rr = (Color.red(currentRightColor) * ledFactor).roundToInt().coerceIn(0, 255)
-            val rg = (Color.green(currentRightColor) * ledFactor).roundToInt().coerceIn(0, 255)
-            val rb = (Color.blue(currentRightColor) * ledFactor).roundToInt().coerceIn(0, 255)
-
-            if (!loggedRgb) {
-                loggedRgb = true
-                android.util.Log.i("BIBI",
-                    "PipBoy RGB out: (%d,%d,%d) ledFactor=%.3f targetBright=%d (brightness via RGB; 4th field=255 ignored)"
-                        .format(lr, lg, lb, ledFactor, targetBrightness))
+            // Vertical-scan: while a bar is rolling, brighten each zone as the
+            // bar passes its u-position (leftTop→leftBottom→rightTop→rightBottom).
+            // Idle → uniform 2-write path (cheaper, no per-zone divergence).
+            if (fVScanState >= VSCAN_START) {
+                emitZone(currentColor, baseFactor, vscanBoost(U_LEFT_TOP),
+                    lt = true, lb = false, rt = false, rb = false)
+                emitZone(currentColor, baseFactor, vscanBoost(U_LEFT_BOTTOM),
+                    lt = false, lb = true, rt = false, rb = false)
+                emitZone(currentRightColor, baseFactor, vscanBoost(U_RIGHT_TOP),
+                    lt = false, lb = false, rt = true, rb = false)
+                emitZone(currentRightColor, baseFactor, vscanBoost(U_RIGHT_BOTTOM),
+                    lt = false, lb = false, rt = false, rb = true)
+            } else {
+                emitZone(currentColor, baseFactor, 0.0,
+                    lt = true, lb = true, rt = false, rb = false)
+                emitZone(currentRightColor, baseFactor, 0.0,
+                    lt = false, lb = false, rt = true, rb = true)
             }
-
-            ledController.setLedColor(lr, lg, lb,
-                leftTop = true, leftBottom = true,
-                rightTop = false, rightBottom = false)
-            ledController.setLedColor(rr, rg, rb,
-                leftTop = false, leftBottom = false,
-                rightTop = true, rightBottom = true)
 
             handler.postDelayed(this, adjustedAnimationDelay(TICK_MS, targetBrightness))
         }
