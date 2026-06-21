@@ -13,8 +13,8 @@ android {
         applicationId = "com.moonbench.bifrost"
         minSdk = 33
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.2.0"
+        versionCode = 9
+        versionName = "1.2.0-beta-3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
