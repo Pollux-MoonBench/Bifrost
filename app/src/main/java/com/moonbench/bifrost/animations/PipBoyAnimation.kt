@@ -7,7 +7,6 @@ import android.os.SystemClock
 import com.moonbench.bifrost.tools.LedController
 import kotlin.math.floor
 import kotlin.math.roundToInt
-import kotlin.random.Random
 
 /**
  * Fallout 4 Pip-Boy CRT effect.
@@ -55,6 +54,15 @@ class PipBoyAnimation(
         const val FLICKER_MIN_DURATION = 0.1  // fFlickerMinDuration
         const val FLICKER_MAX_DURATION = 0.6  // fFlickerMaxDuration
         const val FLICKER_DEPTH = 0.55        // max downward dim during a stutter
+        const val FLICKER_INITIAL_DELAY = 5.0 // fFlickerDelay field default on screen
+
+        // Shared flicker RNG — MUST stay bit-identical with the screen side
+        // (Strip-Boy's FlickerSeed Cecil patch). Same LCG, same seed, same
+        // draw order ⇒ the sticks reproduce the screen's exact flicker
+        // sequence with no runtime signalling. Numerical-Recipes LCG.
+        const val FLICKER_SEED = 0x50B0FFu    // "PIPBOY" seed; mirrored screen-side
+        const val LCG_MUL = 1664525u
+        const val LCG_ADD = 1013904223u
 
         // Pip-Boy phosphor green — the default when no real colour has been
         // supplied yet (e.g. before the in-game HUD EffectColor arrives).
@@ -80,9 +88,49 @@ class PipBoyAnimation(
     // to the screen's clock via setPhaseOrigin so the pulse tracks in phase.
     private var originMs: Long = 0L
 
-    // Flicker scheduler state.
+    // Flicker scheduler state — a deterministic mirror of the screen's
+    // countdown loop, driven by the shared seeded LCG. Re-seeded and
+    // fast-forwarded to the screen's clock in setPhaseOrigin().
     private var flickering = false
-    private var flickerStateEnds = 0.0    // seconds-since-origin when current state flips
+    private var fFlickerDelay = FLICKER_INITIAL_DELAY
+    private var flickerRng = FLICKER_SEED
+    private var lastTickT = 0.0
+
+    /** One LCG draw mapped to [lo, hi). Identical maths screen-side. */
+    private fun seededRange(lo: Double, hi: Double): Double {
+        flickerRng = flickerRng * LCG_MUL + LCG_ADD     // UInt overflow == mod 2^32
+        val frac = flickerRng.toDouble() / 4294967296.0  // 2^32
+        return lo + frac * (hi - lo)
+    }
+
+    /**
+     * Advance the flicker countdown by dt seconds, mirroring Bethesda's
+     * PipboyPostEffect.Update exactly — including draw order, so the LCG
+     * state stays in lockstep with the screen:
+     *   on each expiry: toggle; if now ON draw 1 (duration); if now OFF
+     *   draw 2 (delay, then the 15%-burst-chance roll).
+     */
+    private fun advanceFlicker(dt: Double) {
+        fFlickerDelay -= dt
+        var guard = 0
+        while (fFlickerDelay <= 0.0 && guard < 64) {
+            guard++
+            flickering = !flickering
+            if (flickering) {
+                fFlickerDelay += seededRange(FLICKER_MIN_DURATION, FLICKER_MAX_DURATION)
+            } else {
+                fFlickerDelay += seededRange(FLICKER_MIN_DELAY, FLICKER_MAX_DELAY)
+                seededRange(0.0, 1.0)   // burst-chance roll — drawn to keep RNG aligned
+            }
+        }
+    }
+
+    private fun resetFlicker() {
+        flickering = false
+        fFlickerDelay = FLICKER_INITIAL_DELAY
+        flickerRng = FLICKER_SEED
+        lastTickT = 0.0
+    }
 
     override fun setTargetColor(color: Int) { targetColor = greenIfUnset(color) }
     override fun setTargetRightColor(color: Int) { targetRightColor = greenIfUnset(color) }
@@ -99,6 +147,14 @@ class PipBoyAnimation(
     fun setPhaseOrigin(afSecondsSinceTheirOrigin: Double) {
         originMs = SystemClock.elapsedRealtime() -
             (afSecondsSinceTheirOrigin * 1000.0).toLong()
+        // Re-seed and fast-forward the flicker sim to the screen's clock so
+        // the sticks land on the screen's exact current flicker state, then
+        // continue in lockstep.
+        resetFlicker()
+        if (afSecondsSinceTheirOrigin > 0.0) {
+            advanceFlicker(afSecondsSinceTheirOrigin)
+        }
+        lastTickT = afSecondsSinceTheirOrigin
     }
 
     private val runnable = object : Runnable {
@@ -118,16 +174,10 @@ class PipBoyAnimation(
 
             val t = (SystemClock.elapsedRealtime() - originMs) / 1000.0
 
-            // Flicker scheduler — toggle idle/burst on its own random cadence.
-            if (t >= flickerStateEnds) {
-                flickering = !flickering
-                val span = if (flickering) {
-                    Random.nextDouble(FLICKER_MIN_DURATION, FLICKER_MAX_DURATION)
-                } else {
-                    Random.nextDouble(FLICKER_MIN_DELAY, FLICKER_MAX_DELAY)
-                }
-                flickerStateEnds = t + span
-            }
+            // Flicker scheduler — deterministic countdown driven by the shared
+            // seeded LCG, advanced by real elapsed time. Mirrors the screen.
+            advanceFlicker(t - lastTickT)
+            lastTickT = t
 
             // Pulse: 1.0..1.5 → normalise to a 0.5..1.0 LED envelope.
             val pulse = 1.0 + perlin1d(t * PULSE_RATE) * PULSE_INTENSITY
@@ -165,8 +215,9 @@ class PipBoyAnimation(
         if (running) return
         running = true
         if (originMs == 0L) originMs = SystemClock.elapsedRealtime()
-        flickerStateEnds = 0.0
-        flickering = false
+        // If setPhaseOrigin already ran it has seeded+fast-forwarded the sim;
+        // only reset from scratch when starting without an alignment.
+        if (lastTickT == 0.0) resetFlicker()
         handler.post(runnable)
     }
 
