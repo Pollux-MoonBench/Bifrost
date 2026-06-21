@@ -1269,16 +1269,37 @@ class LEDService : Service() {
 
         if (!isRunning || isStopping.get()) return
 
-        // If app-profile mode is active, let it re-resolve cleanly rather than
-        // snapping back to whatever was painted when the override started.
-        if (appProfileManager.isEnabled) {
-            appProfileManager.forceNextResolution()
-            checkAutoProfileSwitch()
-            if (!isAppProfileSuppressed && currentAnimation == null) {
-                restartAnimationForCurrentState(force = true)
+        // Re-resolve by CURRENT priority, not the state frozen at takeover.
+        // Conditions may have changed during the override — most importantly the
+        // charging state. The snapshot only supplies persistent prefs (colour,
+        // brightness, last manual preset type); the *active* animation is chosen
+        // fresh from live conditions so e.g. "was charging at takeover, unplugged
+        // now" correctly drops the battery indicator and follows app-profile /
+        // the last preset instead of restoring the stale charging-era picture.
+        val chargingNow = currentBatteryOverrideWhenPlugged && isDevicePluggedIn
+        when {
+            // 1. Charging now → battery indicator reclaims priority (whether or
+            //    not it was charging when the override started). force=true
+            //    guarantees the running override animation is replaced.
+            chargingNow -> restartAnimationForCurrentState(force = true)
+
+            // 2. App-profile switching on → re-resolve against the CURRENT
+            //    foreground app, not whatever was foreground at takeover.
+            appProfileManager.isEnabled -> {
+                appProfileManager.forceNextResolution()
+                checkAutoProfileSwitch()
+                // checkAutoProfileSwitch starts the resolved preset itself; the
+                // fallback covers the "suppressed / nothing resolved" gap, and —
+                // crucially — runs even though the override animation is still
+                // non-null, so we never get stuck on the relinquished effect.
+                if (!isAppProfileSuppressed &&
+                    (currentAnimation == null || activeAnimationType == LedAnimationType.PIPBOY)) {
+                    restartAnimationForCurrentState(force = true)
+                }
             }
-        } else {
-            restartAnimationForCurrentState(force = true)
+
+            // 3. Otherwise → the last known manual preset (from the snapshot).
+            else -> restartAnimationForCurrentState(force = true)
         }
     }
 
