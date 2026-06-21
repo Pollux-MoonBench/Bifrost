@@ -87,13 +87,15 @@ class PipBoyAnimation(
         const val VSCAN_START = -0.9          // bar entry position
         const val VSCAN_END = 1.5             // bar exit position
         const val VSCAN_IDLE = -1.0           // not rolling
-        const val VSCAN_WIDTH = 0.28          // zone catchment half-width (in u)
-        const val VSCAN_GAIN = 0.9            // brighten depth as the bar passes
+        const val VSCAN_WIDTH = 0.38          // zone catchment half-width (in u)
+        const val VSCAN_GAIN = 0.4            // brighten depth as the bar passes
         // Zone centres along the normalised bar travel u∈[0,1] (top→bottom).
+        // rightTop pulled up to 0.5 so the right stick's start overlaps the
+        // left stick's end (no dead mid-screen gap); wide WIDTH blends the handoff.
         const val U_LEFT_TOP = 0.0
         const val U_LEFT_BOTTOM = 0.33
-        const val U_RIGHT_TOP = 0.67
-        const val U_RIGHT_BOTTOM = 1.0
+        const val U_RIGHT_TOP = 0.5
+        const val U_RIGHT_BOTTOM = 0.83
 
         // Pip-Boy phosphor green — the default when no real colour has been
         // supplied yet (e.g. before the in-game HUD EffectColor arrives).
@@ -257,6 +259,25 @@ class PipBoyAnimation(
         lastTickT = afSecondsSinceTheirOrigin
     }
 
+    /**
+     * Lightweight drift correction (called on heartbeats): nudge the clock so
+     * the plugin's t tracks the screen's fTime again, WITHOUT re-seeding. The
+     * sims keep their state; the next tick's dt absorbs the (small) correction
+     * — negative/oversized dt is guarded + capped in the tick loop.
+     */
+    fun reanchor(afSecondsSinceTheirOrigin: Double) {
+        if (afSecondsSinceTheirOrigin <= 0.0) return
+        // DIAGNOSTIC (measure-first): drift = how far the plugin clock has
+        // wandered from the screen's fTime since the last anchor. Small+stable
+        // ⇒ synced; growing between heartbeats ⇒ game-time≠wall-clock.
+        val curT = (SystemClock.elapsedRealtime() - originMs) / 1000.0
+        android.util.Log.i("BIBI", "PipBoy reanchor: pluginT=%.2f screenT=%.2f drift=%dms"
+            .format(curT, afSecondsSinceTheirOrigin,
+                ((curT - afSecondsSinceTheirOrigin) * 1000).toLong()))
+        originMs = SystemClock.elapsedRealtime() -
+            (afSecondsSinceTheirOrigin * 1000.0).toLong()
+    }
+
     private val runnable = object : Runnable {
         override fun run() {
             if (!running) return
@@ -273,7 +294,9 @@ class PipBoyAnimation(
             }
 
             val t = (SystemClock.elapsedRealtime() - originMs) / 1000.0
-            val dt = t - lastTickT
+            // Guard + cap dt: a heartbeat reanchor can nudge t; never advance
+            // backward, never fast-forward more than half a second in one tick.
+            val dt = (t - lastTickT).coerceIn(0.0, 0.5)
             lastTickT = t
 
             // Flicker + burst + vscan schedulers — deterministic, seeded.

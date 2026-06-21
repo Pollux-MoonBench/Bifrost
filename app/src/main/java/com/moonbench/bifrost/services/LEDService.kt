@@ -1177,6 +1177,11 @@ class LEDService : Service() {
                 anim.setTargetColor(color)
                 anim.setTargetRightColor(rightColor)
                 anim.setTargetBrightness(intensity)
+                // Drift correction: re-anchor a deterministic effect (PIPBOY) to
+                // the caller's fresh clock on each heartbeat — keeps the seeded
+                // flicker/vscan in phase without a restart.
+                val phase = intent.getFloatExtra(EXTRA_EXTERNAL_PHASE_SECONDS, 0f).toDouble()
+                if (anim is PipBoyAnimation && phase > 0.0) anim.reanchor(phase)
             }
             return
         }
