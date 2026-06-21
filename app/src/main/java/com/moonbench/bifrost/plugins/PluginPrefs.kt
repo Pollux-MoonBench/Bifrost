@@ -22,11 +22,13 @@ object PluginPrefs {
     const val PREF_INSTALLED_VERSIONS = "plugin_installed_versions"  // JSON {id:version}
 
     /**
-     * Default catalogue. Points at the GitHub plugins sub-repo's raw catalog.
-     * Overridable in the plugin store UI for forks / local testing.
+     * Default catalogue. Served from the upstream Bifrost repo's dedicated
+     * `plugin-catalog` branch (content-only, gh-pages style — permanent, so the
+     * URL never breaks when feature branches merge). Overridable in the plugin
+     * store UI for forks / local testing.
      */
     const val DEFAULT_CATALOG_URL =
-        "https://raw.githubusercontent.com/KuriGohan-Kamehameha/bifrost-plugins/main/catalog.json"
+        "https://raw.githubusercontent.com/Pollux-MoonBench/Bifrost/plugin-catalog/catalog.json"
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
