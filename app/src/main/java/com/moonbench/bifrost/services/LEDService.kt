@@ -104,6 +104,8 @@ class LEDService : Service() {
         const val EXTRA_EXTERNAL_TERMINATOR = "external.terminator"
         const val EXTRA_EXTERNAL_DURATION_MS = "external.durationMs"
         const val EXTRA_EXTERNAL_PHASE_SECONDS = "external.phaseSeconds"
+        const val EXTRA_EXTERNAL_FLICKERING = "external.flickering"
+        const val EXTRA_EXTERNAL_BURST_WALL_MS = "external.burstWallMs"
 
         const val TERMINATOR_DURATION = "DURATION"
         const val TERMINATOR_NEXT_COMMAND = "NEXT_COMMAND"
@@ -140,6 +142,8 @@ class LEDService : Service() {
     private var currentSmoothness: Float = 0.5f
     private var currentSensitivity: Float = 0.5f
     private var currentPhaseSeconds: Double = 0.0   // external phase-align hint (PIPBOY)
+    private var currentFlickering: Boolean = false   // external flicker state (PIPBOY)
+    private var currentBurstWallMs: Long = 0L        // external burst anchor (PIPBOY)
     private var currentProfile: PerformanceProfile = PerformanceProfile.MEDIUM
     private var currentAnimationType: LedAnimationType = LedAnimationType.AMBIENT
     private var currentSaturationBoost: Float = 0f
@@ -1104,6 +1108,10 @@ class LEDService : Service() {
             if (animation is PipBoyAnimation && currentPhaseSeconds > 0.0) {
                 animation.setPhaseOrigin(currentPhaseSeconds)
             }
+            if (animation is PipBoyAnimation) {
+                animation.setFlickering(currentFlickering)
+                if (currentBurstWallMs > 0L) animation.setBurst(currentBurstWallMs)
+            }
             animation.start()
             activeAnimationType = type
             Log.d(TAG, "startAnimation: STARTED type=$type, activeAnimationType=$activeAnimationType")
@@ -1189,6 +1197,16 @@ class LEDService : Service() {
                 // flicker/vscan in phase without a restart.
                 val phase = intent.getFloatExtra(EXTRA_EXTERNAL_PHASE_SECONDS, 0f).toDouble()
                 if (anim is PipBoyAnimation && phase > 0.0) anim.reanchor(phase)
+                // Mirror the screen's vertical-scan bar: feed the latest roll
+                // anchor every heartbeat so event-triggered scans (which a seed
+                // can't reproduce) still drive the LED bar.
+                // Mirror flicker on/off + burst flashes — event-driven, since the
+                // screen's schedule (game triggers + multi-instance) isn't replayable.
+                if (anim is PipBoyAnimation) {
+                    anim.setFlickering(intent.getBooleanExtra(EXTRA_EXTERNAL_FLICKERING, false))
+                    val burstWall = intent.getLongExtra(EXTRA_EXTERNAL_BURST_WALL_MS, 0L)
+                    if (burstWall > 0L) anim.setBurst(burstWall)
+                }
             }
             return
         }
@@ -1239,6 +1257,8 @@ class LEDService : Service() {
         currentSmoothness = smoothness
         currentSensitivity = sensitivity
         currentPhaseSeconds = intent.getFloatExtra(EXTRA_EXTERNAL_PHASE_SECONDS, 0f).toDouble()
+        currentFlickering = intent.getBooleanExtra(EXTRA_EXTERNAL_FLICKERING, false)
+        currentBurstWallMs = intent.getLongExtra(EXTRA_EXTERNAL_BURST_WALL_MS, 0L)
         isAppProfileSuppressed = false
 
         externalExpiryRunnable?.let(handler::removeCallbacks)

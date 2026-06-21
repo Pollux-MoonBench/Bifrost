@@ -24,7 +24,9 @@ sealed class ExternalApiCommand {
         val sensitivity: Float,
         val terminator: Terminator,
         val priority: Int,
-        val phaseSeconds: Float = 0f
+        val phaseSeconds: Float = 0f,
+        val flickering: Boolean = false,
+        val burstWallMs: Long = 0L
     ) : ExternalApiCommand()
 
     data class Clear(

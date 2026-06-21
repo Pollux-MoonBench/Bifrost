@@ -42,6 +42,10 @@ object ExternalApi {
     // Optional: caller's elapsed effect-clock seconds, used by deterministic
     // effects (e.g. PIPBOY) to phase-align their animation with the caller.
     const val EXTRA_PHASE_SECONDS = "phaseSeconds"
+    // Optional: current screen flicker state (PIPBOY shimmers its LEDs when true).
+    const val EXTRA_FLICKERING = "flickering"
+    // Optional: elapsedRealtime() ms of the caller's most recent burst flash.
+    const val EXTRA_BURST_WALL_MS = "burstWallMs"
 
     const val EXTRA_PROFILE_NAME = "profileName"
     const val EXTRA_PROFILE_REPLACE_IF_EXISTS = "replaceIfExists"

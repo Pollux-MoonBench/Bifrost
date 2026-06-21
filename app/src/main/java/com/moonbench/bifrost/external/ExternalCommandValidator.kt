@@ -113,6 +113,8 @@ object ExternalCommandValidator {
                 terminator = terminator,
                 priority = intent.getIntExtra(ExternalApi.EXTRA_PRIORITY, 50).coerceIn(0, 100),
                 phaseSeconds = intent.getFloatExtra(ExternalApi.EXTRA_PHASE_SECONDS, 0f),
+                flickering = intent.getBooleanExtra(ExternalApi.EXTRA_FLICKERING, false),
+                burstWallMs = intent.getLongExtra(ExternalApi.EXTRA_BURST_WALL_MS, 0L),
             )
         )
     }
