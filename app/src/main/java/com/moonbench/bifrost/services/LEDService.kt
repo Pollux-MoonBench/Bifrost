@@ -24,6 +24,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
+import android.os.SystemClock
 import android.os.Looper
 import android.os.PowerManager
 import android.hardware.display.DisplayManager
@@ -55,6 +56,7 @@ import com.moonbench.bifrost.animations.StaticAnimation
 import com.moonbench.bifrost.animations.StrobeAnimation
 import com.moonbench.bifrost.external.ExternalOverrideState
 import com.moonbench.bifrost.external.Terminator
+import com.moonbench.bifrost.tools.Crossfade
 import com.moonbench.bifrost.tools.LedController
 import com.moonbench.bifrost.tools.PerformanceProfile
 import java.util.concurrent.atomic.AtomicBoolean
@@ -69,8 +71,17 @@ class LEDService : Service() {
         // An external override is a renewable lease: the owning app must keep
         // refreshing it (heartbeat). If it stops — app closed, backgrounded, or
         // crashed — the lease goes stale and Bifrost cleanly reverts. Must
-        // comfortably exceed the caller's heartbeat interval.
-        private const val EXTERNAL_LEASE_TIMEOUT_MS = 6000L
+        // comfortably exceed the caller's heartbeat interval (~500ms) but stay
+        // tight so the sticks don't linger on a dead effect: 1.5s = 3 missed
+        // beats. While an override is live we also poll faster (below) so the
+        // watchdog notices within ~one beat of the lease expiring, not seconds.
+        private const val EXTERNAL_LEASE_TIMEOUT_MS = 1500L
+        private const val EXTERNAL_OVERRIDE_CHECK_INTERVAL_MS = 400L
+        // Crossfade that masks an override→revert hard cut: dip the outgoing
+        // effect to black, swap animations under cover, fade the incoming up.
+        private const val CROSSFADE_OUT_MS = 170L
+        private const val CROSSFADE_IN_MS = 230L
+        private const val CROSSFADE_TICK_MS = 25L
         private const val TRANSITION_RETRY_DELAY_MS = 200L
         private const val TRANSITION_START_DELAY_MS = 100L
         private const val PROJECTION_RESTART_DELAY_MS = 150L
@@ -185,6 +196,7 @@ class LEDService : Service() {
     private var activeExternalOverride: ExternalOverrideState? = null
     private var externalOverrideLastSeenMs: Long = 0L   // lease renewal timestamp
     private var externalExpiryRunnable: Runnable? = null
+    private var crossfadeRunnable: Runnable? = null
     private var savedStateBeforeExternalOverride: ExternalOverrideSnapshot? = null
 
     private data class ExternalOverrideSnapshot(
@@ -272,10 +284,12 @@ class LEDService : Service() {
                     revertExternalOverride()
                 }
                 checkAutoProfileSwitch()
-                val nextDelay = if (appProfileManager.isEnabled) {
-                    ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
-                } else {
-                    ACTIVITY_CHECK_INTERVAL_MS
+                val nextDelay = when {
+                    // A live override is polled tightly so a stale lease is caught
+                    // within ~one heartbeat, not the multi-second idle cadence.
+                    activeExternalOverride != null -> EXTERNAL_OVERRIDE_CHECK_INTERVAL_MS
+                    appProfileManager.isEnabled -> ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
+                    else -> ACTIVITY_CHECK_INTERVAL_MS
                 }
                 handler.postDelayed(this, nextDelay)
             }
@@ -960,6 +974,8 @@ class LEDService : Service() {
         pendingShutdownRunnable = null
         externalExpiryRunnable?.let(handler::removeCallbacks)
         externalExpiryRunnable = null
+        crossfadeRunnable?.let(handler::removeCallbacks)
+        crossfadeRunnable = null
     }
 
     private fun cleanupAndStop() {
@@ -1243,6 +1259,15 @@ class LEDService : Service() {
             )
         }
 
+        // A fresh override may land mid-crossfade (effect reactivated during the
+        // revert dip) — cancel the fade and restore full LED scale so it renders
+        // at full brightness rather than wherever the dip left it.
+        if (crossfadeRunnable != null) {
+            crossfadeRunnable?.let(handler::removeCallbacks)
+            crossfadeRunnable = null
+            ledController.setMasterScale(1f)
+        }
+
         activeExternalOverride = ExternalOverrideState(
             callerPackage = callerPkg,
             effect = effect,
@@ -1335,6 +1360,30 @@ class LEDService : Service() {
         savedStateBeforeExternalOverride = null
         releasePipboyWakeLock()
 
+        // When stopping there's nothing to fade into — apply immediately and
+        // make sure the LED scale isn't left dimmed.
+        if (!isRunning || isStopping.get()) {
+            crossfadeRunnable?.let(handler::removeCallbacks)
+            crossfadeRunnable = null
+            ledController.setMasterScale(1f)
+            applyRevertResolution(snapshot)
+            return
+        }
+
+        // Mask the hard cut: the outgoing effect keeps rendering while we dim it
+        // to black, swap to the re-resolved animation under cover of black, then
+        // fade the incoming up. applyRevertResolution runs at the black midpoint.
+        startCrossfadeRevert { applyRevertResolution(snapshot) }
+    }
+
+    /**
+     * Resolve and start the animation that should run now the override is gone.
+     * Restores persistent prefs from the snapshot, then re-resolves by CURRENT
+     * priority — conditions may have changed during the override (most
+     * importantly charging), so the active animation is chosen fresh from live
+     * conditions rather than restoring a stale charging-era picture.
+     */
+    private fun applyRevertResolution(snapshot: ExternalOverrideSnapshot?) {
         if (snapshot != null) {
             currentAnimationType = snapshot.animationType
             currentColor = snapshot.color
@@ -1348,18 +1397,10 @@ class LEDService : Service() {
 
         if (!isRunning || isStopping.get()) return
 
-        // Re-resolve by CURRENT priority, not the state frozen at takeover.
-        // Conditions may have changed during the override — most importantly the
-        // charging state. The snapshot only supplies persistent prefs (colour,
-        // brightness, last manual preset type); the *active* animation is chosen
-        // fresh from live conditions so e.g. "was charging at takeover, unplugged
-        // now" correctly drops the battery indicator and follows app-profile /
-        // the last preset instead of restoring the stale charging-era picture.
         val chargingNow = currentBatteryOverrideWhenPlugged && isDevicePluggedIn
         when {
             // 1. Charging now → battery indicator reclaims priority (whether or
-            //    not it was charging when the override started). force=true
-            //    guarantees the running override animation is replaced.
+            //    not it was charging when the override started).
             chargingNow -> restartAnimationForCurrentState(force = true)
 
             // 2. App-profile switching on → re-resolve against the CURRENT
@@ -1380,6 +1421,56 @@ class LEDService : Service() {
             // 3. Otherwise → the last known manual preset (from the snapshot).
             else -> restartAnimationForCurrentState(force = true)
         }
+    }
+
+    /**
+     * Dip-to-black crossfade around the override→revert swap. Ramps the LED
+     * master scale 1→0 (outgoing dims), invokes [applyIncoming] at black to swap
+     * the animation, then ramps 0→1 (incoming fades up). Self-driven on the
+     * handler so it works regardless of the incoming animation's render rate,
+     * and bounded by the fixed fade durations.
+     */
+    private fun startCrossfadeRevert(applyIncoming: () -> Unit) {
+        crossfadeRunnable?.let(handler::removeCallbacks)
+        val startMs = SystemClock.elapsedRealtime()
+        var swapped = false
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!isRunning || isStopping.get()) {
+                    if (!swapped) applyIncoming()
+                    ledController.setMasterScale(1f)
+                    crossfadeRunnable = null
+                    return
+                }
+                val elapsed = SystemClock.elapsedRealtime() - startMs
+                when {
+                    // Phase 1 — dim the outgoing effect to black.
+                    elapsed < CROSSFADE_OUT_MS -> {
+                        ledController.setMasterScale(Crossfade.scaleAt(elapsed, CROSSFADE_OUT_MS, CROSSFADE_IN_MS))
+                        handler.postDelayed(this, CROSSFADE_TICK_MS)
+                    }
+                    // Midpoint — swap the animation while the LEDs are black.
+                    !swapped -> {
+                        swapped = true
+                        ledController.setMasterScale(0f)
+                        ledController.resetFadeBaseline()
+                        applyIncoming()
+                        handler.postDelayed(this, CROSSFADE_TICK_MS)
+                    }
+                    // Phase 2 — fade the incoming animation up from black.
+                    !Crossfade.isComplete(elapsed, CROSSFADE_OUT_MS, CROSSFADE_IN_MS) -> {
+                        ledController.setMasterScale(Crossfade.scaleAt(elapsed, CROSSFADE_OUT_MS, CROSSFADE_IN_MS))
+                        handler.postDelayed(this, CROSSFADE_TICK_MS)
+                    }
+                    else -> {
+                        ledController.setMasterScale(1f)
+                        crossfadeRunnable = null
+                    }
+                }
+            }
+        }
+        crossfadeRunnable = runnable
+        handler.post(runnable)
     }
 
     private fun showProjectionPromptNotification() {
