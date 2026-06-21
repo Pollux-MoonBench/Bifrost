@@ -42,4 +42,7 @@
 
     <string name="external_api_switch_label">Allow third-party LED control</string>
 
+    <string name="accessibility_service_description">Lets Bifrost detect the foreground app for automatic profile switching and capture on-screen colour for ambient LED effects.</string>
+    <string name="live_wallpaper_description">A live wallpaper that mirrors your Bifrost LED animation on the screen.</string>
+
 </resources>
