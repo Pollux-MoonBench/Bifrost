@@ -21,4 +21,5 @@ enum class LedAnimationType(
     FADE_TRANSITION(false, true, true, false, false),
     RAVE(false, false, true, false, false),
     CHASE(false, true, true, false, false),
+    PIPBOY(false, true, false, false, false),
 }

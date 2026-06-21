@@ -45,6 +45,7 @@ import com.moonbench.bifrost.animations.CpuTemperatureAnimation
 import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
+import com.moonbench.bifrost.animations.PipBoyAnimation
 import com.moonbench.bifrost.animations.PulseAnimation
 import com.moonbench.bifrost.animations.RainbowAnimation
 import com.moonbench.bifrost.animations.RaveAnimation
@@ -1352,6 +1353,7 @@ class LEDService : Service() {
             LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(ledController, color, rightColor)
             LedAnimationType.RAVE -> RaveAnimation(ledController)
             LedAnimationType.CHASE -> ChaseAnimation(ledController, color, rightColor)
+            LedAnimationType.PIPBOY -> PipBoyAnimation(ledController, color, rightColor)
         }
     }
 }

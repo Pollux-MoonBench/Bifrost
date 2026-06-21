@@ -38,7 +38,8 @@ enum class PresetIcon(
                 LedAnimationType.SPARKLE,
                 LedAnimationType.RAINBOW,
                 LedAnimationType.RAVE,
-                LedAnimationType.FADE_TRANSITION -> LIGHT
+                LedAnimationType.FADE_TRANSITION,
+                LedAnimationType.PIPBOY -> LIGHT
 
                 LedAnimationType.AUDIO_REACTIVE -> PLAY
                 LedAnimationType.AMBILIGHT,
