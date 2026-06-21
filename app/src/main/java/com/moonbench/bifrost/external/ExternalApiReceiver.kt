@@ -68,6 +68,7 @@ class ExternalApiReceiver : BroadcastReceiver() {
                 putExtra(LEDService.EXTRA_EXTERNAL_SMOOTHNESS, cmd.smoothness)
                 putExtra(LEDService.EXTRA_EXTERNAL_SENSITIVITY, cmd.sensitivity)
                 putExtra(LEDService.EXTRA_EXTERNAL_PRIORITY, cmd.priority)
+                putExtra(LEDService.EXTRA_EXTERNAL_PHASE_SECONDS, cmd.phaseSeconds)
                 when (val t = cmd.terminator) {
                     is Terminator.Duration -> {
                         putExtra(LEDService.EXTRA_EXTERNAL_TERMINATOR, LEDService.TERMINATOR_DURATION)

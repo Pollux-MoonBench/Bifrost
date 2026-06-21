@@ -48,10 +48,6 @@
     <string name="startup_progress_audio">Step 3/3 - Enable usage access</string>
     <string name="startup_progress_done">Setup complete</string>
 
-    <string name="startup_notifications_title">Allow notifications</string>
-    <string name="startup_notifications_body">Bifrost runs as a foreground service so Android requires notifications to keep it alive.</string>
-    <string name="startup_notifications_action">Allow notifications</string>
-
     <string name="startup_accessibility_title">Allow full device control</string>
     <string name="startup_accessibility_body">Bifrost uses Accessibility screenshot capture to sample your screen continuously without repeating capture prompts.</string>
     <string name="startup_accessibility_action">Open Accessibility Settings</string>

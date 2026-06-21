@@ -45,6 +45,7 @@ import com.moonbench.bifrost.animations.CpuTemperatureAnimation
 import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
+import com.moonbench.bifrost.animations.PipBoyAnimation
 import com.moonbench.bifrost.animations.PulseAnimation
 import com.moonbench.bifrost.animations.RainbowAnimation
 import com.moonbench.bifrost.animations.RaveAnimation
@@ -64,6 +65,11 @@ class LEDService : Service() {
         private const val PREF_KEY_LAST_PRESET = "last_preset_name"
         private const val ACTIVITY_CHECK_INTERVAL_MS = 2000L
         private const val ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS = 700L
+        // An external override is a renewable lease: the owning app must keep
+        // refreshing it (heartbeat). If it stops — app closed, backgrounded, or
+        // crashed — the lease goes stale and Bifrost cleanly reverts. Must
+        // comfortably exceed the caller's heartbeat interval.
+        private const val EXTERNAL_LEASE_TIMEOUT_MS = 6000L
         private const val TRANSITION_RETRY_DELAY_MS = 200L
         private const val TRANSITION_START_DELAY_MS = 100L
         private const val PROJECTION_RESTART_DELAY_MS = 150L
@@ -95,6 +101,7 @@ class LEDService : Service() {
         const val EXTRA_EXTERNAL_PRIORITY = "external.priority"
         const val EXTRA_EXTERNAL_TERMINATOR = "external.terminator"
         const val EXTRA_EXTERNAL_DURATION_MS = "external.durationMs"
+        const val EXTRA_EXTERNAL_PHASE_SECONDS = "external.phaseSeconds"
 
         const val TERMINATOR_DURATION = "DURATION"
         const val TERMINATOR_NEXT_COMMAND = "NEXT_COMMAND"
@@ -130,6 +137,7 @@ class LEDService : Service() {
     private var currentSpeed: Float = 0.5f
     private var currentSmoothness: Float = 0.5f
     private var currentSensitivity: Float = 0.5f
+    private var currentPhaseSeconds: Double = 0.0   // external phase-align hint (PIPBOY)
     private var currentProfile: PerformanceProfile = PerformanceProfile.MEDIUM
     private var currentAnimationType: LedAnimationType = LedAnimationType.AMBIENT
     private var currentSaturationBoost: Float = 0f
@@ -160,6 +168,7 @@ class LEDService : Service() {
     private var isAppProfileSuppressed: Boolean = false
 
     private var activeExternalOverride: ExternalOverrideState? = null
+    private var externalOverrideLastSeenMs: Long = 0L   // lease renewal timestamp
     private var externalExpiryRunnable: Runnable? = null
     private var savedStateBeforeExternalOverride: ExternalOverrideSnapshot? = null
 
@@ -240,6 +249,13 @@ class LEDService : Service() {
                 cleanupAndStop()
             } else {
                 Log.d(TAG, "activityCheckRunnable: tick — appProfileEnabled=${appProfileManager.isEnabled}, currentAnimationType=$currentAnimationType, activeAnimationType=$activeAnimationType, currentAnimation=${currentAnimation != null}, isTransitioning=${isTransitioning.get()}")
+                // Lease watchdog: an override whose owner stopped renewing it
+                // (closed/backgrounded/crashed) is cleanly reverted.
+                if (activeExternalOverride != null &&
+                    System.currentTimeMillis() - externalOverrideLastSeenMs > EXTERNAL_LEASE_TIMEOUT_MS) {
+                    Log.i(TAG, "activityCheckRunnable: external override lease expired → reverting")
+                    revertExternalOverride()
+                }
                 checkAutoProfileSwitch()
                 val nextDelay = if (appProfileManager.isEnabled) {
                     ACTIVITY_CHECK_INTERVAL_APP_PROFILE_MS
@@ -270,16 +286,6 @@ class LEDService : Service() {
 
         if (intent.action == ACTION_STOP) {
             cleanupAndStop()
-            return START_NOT_STICKY
-        }
-
-        if (intent.action == ACTION_KILL) {
-            cleanupAndStop()
-            val finishIntent = Intent(this, MainActivity::class.java).apply {
-                putExtra("finish", true)
-                this.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            startActivity(finishIntent)
             return START_NOT_STICKY
         }
 
@@ -645,6 +651,16 @@ class LEDService : Service() {
     }
 
     private fun resolveEffectiveAnimationType(): LedAnimationType {
+        // An active external override (a Bifrost plugin / third-party app
+        // command via ACTION_DISPLAY) is an explicit, prioritised request and
+        // takes precedence over everything passive: the charge-when-plugged
+        // indicator, app-profile switching, and the user's standing preset.
+        // This mirrors the documented contract ("app-profile switching is
+        // paused while an override is active") — the charge indicator is held
+        // back the same way until the override is cleared/expires.
+        if (activeExternalOverride != null) {
+            return currentAnimationType
+        }
         return if (
             currentBatteryOverrideWhenPlugged &&
             isDevicePluggedIn &&
@@ -714,17 +730,6 @@ class LEDService : Service() {
         val resolvedBrightness = effectiveBrightness()
 
         stopCurrentAnimation()
-
-        if (needsMediaProjection(animationType) && (resultCode != Activity.RESULT_OK || data == null)) {
-            Log.d(TAG, "processAnimationChange: missing MediaProjection token for $animationType, prompting user")
-            showProjectionPromptNotification()
-            pendingTransitionRunnable = Runnable {
-                isTransitioning.set(false)
-                pendingTransitionRunnable = null
-            }
-            handler.postDelayed(pendingTransitionRunnable!!, TRANSITION_START_DELAY_MS)
-            return
-        }
 
         if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
             pendingTransitionRunnable = Runnable {
@@ -1087,6 +1092,11 @@ class LEDService : Service() {
             animation.setBreatheWhenCharging(currentBreatheWhenCharging)
             animation.setIndicateChargingSpeed(currentIndicateChargingSpeed)
             animation.setFlashWhenReady(currentFlashWhenReady)
+            // Phase-align deterministic effects (PIPBOY) to the caller's clock
+            // so their seeded flicker reproduces the source's exact state.
+            if (animation is PipBoyAnimation && currentPhaseSeconds > 0.0) {
+                animation.setPhaseOrigin(currentPhaseSeconds)
+            }
             animation.start()
             activeAnimationType = type
             Log.d(TAG, "startAnimation: STARTED type=$type, activeAnimationType=$activeAnimationType")
@@ -1147,6 +1157,30 @@ class LEDService : Service() {
         val smoothness = intent.getFloatExtra(EXTRA_EXTERNAL_SMOOTHNESS, currentSmoothness).coerceIn(0f, 1f)
         val sensitivity = intent.getFloatExtra(EXTRA_EXTERNAL_SENSITIVITY, currentSensitivity).coerceIn(0f, 1f)
 
+        // Renew the lease on every command from the owner.
+        externalOverrideLastSeenMs = System.currentTimeMillis()
+
+        // Keep-alive / live-update fast path: the same caller is renewing its
+        // already-running override of the same effect (heartbeat, or a colour
+        // tweak). Nudge the live animation's colour/brightness via setters —
+        // no restart, so the flicker never hitches. Phase was aligned once at
+        // start; both sides then advance on real time. A new caller or an
+        // effect change falls through to the full snapshot + restart path.
+        if (current != null && current.callerPackage == callerPkg &&
+            current.effect == effect && activeAnimationType == effect &&
+            currentAnimation != null
+        ) {
+            currentColor = color
+            currentRightColor = rightColor
+            currentBrightness = intensity
+            currentAnimation?.let { anim ->
+                anim.setTargetColor(color)
+                anim.setTargetRightColor(rightColor)
+                anim.setTargetBrightness(intensity)
+            }
+            return
+        }
+
         val terminator: Terminator = when (intent.getStringExtra(EXTRA_EXTERNAL_TERMINATOR)) {
             TERMINATOR_DURATION -> Terminator.Duration(
                 intent.getLongExtra(EXTRA_EXTERNAL_DURATION_MS, 0L)
@@ -1192,6 +1226,7 @@ class LEDService : Service() {
         currentSpeed = speed
         currentSmoothness = smoothness
         currentSensitivity = sensitivity
+        currentPhaseSeconds = intent.getFloatExtra(EXTRA_EXTERNAL_PHASE_SECONDS, 0f).toDouble()
         isAppProfileSuppressed = false
 
         externalExpiryRunnable?.let(handler::removeCallbacks)
@@ -1237,16 +1272,37 @@ class LEDService : Service() {
 
         if (!isRunning || isStopping.get()) return
 
-        // If app-profile mode is active, let it re-resolve cleanly rather than
-        // snapping back to whatever was painted when the override started.
-        if (appProfileManager.isEnabled) {
-            appProfileManager.forceNextResolution()
-            checkAutoProfileSwitch()
-            if (!isAppProfileSuppressed && currentAnimation == null) {
-                restartAnimationForCurrentState(force = true)
+        // Re-resolve by CURRENT priority, not the state frozen at takeover.
+        // Conditions may have changed during the override — most importantly the
+        // charging state. The snapshot only supplies persistent prefs (colour,
+        // brightness, last manual preset type); the *active* animation is chosen
+        // fresh from live conditions so e.g. "was charging at takeover, unplugged
+        // now" correctly drops the battery indicator and follows app-profile /
+        // the last preset instead of restoring the stale charging-era picture.
+        val chargingNow = currentBatteryOverrideWhenPlugged && isDevicePluggedIn
+        when {
+            // 1. Charging now → battery indicator reclaims priority (whether or
+            //    not it was charging when the override started). force=true
+            //    guarantees the running override animation is replaced.
+            chargingNow -> restartAnimationForCurrentState(force = true)
+
+            // 2. App-profile switching on → re-resolve against the CURRENT
+            //    foreground app, not whatever was foreground at takeover.
+            appProfileManager.isEnabled -> {
+                appProfileManager.forceNextResolution()
+                checkAutoProfileSwitch()
+                // checkAutoProfileSwitch starts the resolved preset itself; the
+                // fallback covers the "suppressed / nothing resolved" gap, and —
+                // crucially — runs even though the override animation is still
+                // non-null, so we never get stuck on the relinquished effect.
+                if (!isAppProfileSuppressed &&
+                    (currentAnimation == null || activeAnimationType == LedAnimationType.PIPBOY)) {
+                    restartAnimationForCurrentState(force = true)
+                }
             }
-        } else {
-            restartAnimationForCurrentState(force = true)
+
+            // 3. Otherwise → the last known manual preset (from the snapshot).
+            else -> restartAnimationForCurrentState(force = true)
         }
     }
 
@@ -1381,6 +1437,7 @@ class LEDService : Service() {
             LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(ledController, color, rightColor)
             LedAnimationType.RAVE -> RaveAnimation(ledController)
             LedAnimationType.CHASE -> ChaseAnimation(ledController, color, rightColor)
+            LedAnimationType.PIPBOY -> PipBoyAnimation(ledController, color, rightColor)
         }
     }
 }

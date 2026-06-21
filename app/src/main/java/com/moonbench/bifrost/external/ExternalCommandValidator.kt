@@ -112,6 +112,7 @@ object ExternalCommandValidator {
                 sensitivity = intent.getFloatExtra(ExternalApi.EXTRA_SENSITIVITY, 0.5f).coerceIn(0f, 1f),
                 terminator = terminator,
                 priority = intent.getIntExtra(ExternalApi.EXTRA_PRIORITY, 50).coerceIn(0, 100),
+                phaseSeconds = intent.getFloatExtra(ExternalApi.EXTRA_PHASE_SECONDS, 0f),
             )
         )
     }
