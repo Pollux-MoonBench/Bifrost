@@ -85,7 +85,7 @@ class ScreenAnalyzer(
     private var handlerThread: HandlerThread? = null
     private var handler: Handler? = null
     private var projectionCallback: MediaProjection.Callback? = null
-    private var isRunning: Boolean = false
+    @Volatile private var isRunning: Boolean = false
 
     // Accessibility path only
     private var captureInFlight: Boolean = false
@@ -127,6 +127,9 @@ class ScreenAnalyzer(
     fun stop() {
         if (!isRunning) return
         isRunning = false
+        // Detach the frame listener before releasing the reader so an in-flight
+        // capture callback on the handler thread can't touch a closed reader.
+        runCatching { imageReader?.setOnImageAvailableListener(null, null) }
         virtualDisplay?.release()
         virtualDisplay = null
         imageReader?.close()
@@ -145,17 +148,24 @@ class ScreenAnalyzer(
     private fun startVirtualDisplayCapture() {
         val ir = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, 2)
         ir.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            // stop() can close the reader / stop the projection on another thread
+            // between callbacks; acquireLatestImage() or buffer access then throws
+            // on this capture thread. Swallow during teardown instead of crashing.
             try {
-                if (!isRunning) return@setOnImageAvailableListener
-                val now = SystemClock.elapsedRealtime()
-                val minInterval = if (performanceProfile == PerformanceProfile.RAGNAROK) 16L
-                                  else performanceProfile.intervalMs.coerceAtLeast(16L)
-                if (now - lastProcessedTime < minInterval) return@setOnImageAvailableListener
-                lastProcessedTime = now
-                processImage(image)
-            } finally {
-                image.close()
+                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                try {
+                    if (!isRunning) return@setOnImageAvailableListener
+                    val now = SystemClock.elapsedRealtime()
+                    val minInterval = if (performanceProfile == PerformanceProfile.RAGNAROK) 16L
+                                      else performanceProfile.intervalMs.coerceAtLeast(16L)
+                    if (now - lastProcessedTime < minInterval) return@setOnImageAvailableListener
+                    lastProcessedTime = now
+                    processImage(image)
+                } finally {
+                    image.close()
+                }
+            } catch (t: Throwable) {
+                if (isRunning) android.util.Log.w("ScreenAnalyser", "capture frame dropped: ${t.message}")
             }
         }, handler)
         imageReader = ir
