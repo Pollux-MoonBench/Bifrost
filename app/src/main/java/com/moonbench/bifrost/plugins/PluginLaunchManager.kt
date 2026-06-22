@@ -27,6 +27,12 @@ object PluginLaunchManager {
     fun maybePromptForUpdateChecks(activity: Activity) {
         val prefs = PluginPrefs.prefs(activity)
         if (PluginPrefs.updatePromptShown(prefs)) return
+        // This runs from a posted MainActivity init callback; the AYN launcher's
+        // display 4 → 0 relaunch can leave it executing against a destroyed
+        // activity, and AlertDialog.show() on a dead token throws BadTokenException
+        // (fatal). Bail BEFORE marking shown so a live launch still gets the
+        // one-time prompt rather than silently consuming it on the dead instance.
+        if (activity.isFinishing || activity.isDestroyed) return
         PluginPrefs.markUpdatePromptShown(prefs)
 
         AlertDialog.Builder(activity)

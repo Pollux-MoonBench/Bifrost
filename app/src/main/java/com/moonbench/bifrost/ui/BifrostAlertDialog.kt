@@ -22,6 +22,13 @@ class BifrostAlertDialog {
         onConfirm: () -> Unit,
         onCancel: () -> Unit = {}
     ) {
+        // The AYN launcher can destroy/recreate MainActivity between a posted
+        // callback being scheduled and run (it relaunches across display 4 → 0),
+        // so a dialog shown from such a callback hits a dead window token →
+        // BadTokenException (fatal) or a leaked window. Bail if the host activity
+        // is no longer live. Central guard: covers every BifrostAlertDialog caller.
+        if (activity.isFinishing || activity.isDestroyed) return
+
         val inflater = LayoutInflater.from(activity)
         val view = inflater.inflate(R.layout.dialog_bifrost_alert, null)
 
