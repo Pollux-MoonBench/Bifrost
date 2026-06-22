@@ -37,6 +37,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.moonbench.bifrost.MainActivity
 import com.moonbench.bifrost.R
+import com.moonbench.bifrost.plugins.PluginPrefs
 import com.moonbench.bifrost.animations.AmbiAuroraAnimation
 import com.moonbench.bifrost.animations.AmbientAnimation
 import com.moonbench.bifrost.animations.AudioReactiveAnimation
@@ -183,6 +184,14 @@ class LEDService : Service() {
     private var currentAdaptiveBrightness: Boolean = false
     private var allowBackgroundRun: Boolean = false
     private var currentAmbientDisplayId: Int = Display.DEFAULT_DISPLAY
+
+    // Fallout "mirror bottom screen" mode: when on, the companion's PIPBOY signal
+    // is reinterpreted as AMBIENT-mirroring whichever display shows the Pip-Boy
+    // (accessibility capture, per-display). mirrorRunningDisplayId is the display
+    // the live mirror is capturing, so a Pip-Boy move to the other screen forces
+    // a restart on the new display.
+    @Volatile private var mirrorMode = false
+    private var mirrorRunningDisplayId = Display.INVALID_DISPLAY
     private var activeAnimationType: LedAnimationType? = null
     private var lastProjectionResultCode: Int = Activity.RESULT_OK
     private var lastProjectionData: Intent? = null
@@ -992,6 +1001,8 @@ class LEDService : Service() {
             isAppProfileSuppressed = false
             activeExternalOverride = null
             savedStateBeforeExternalOverride = null
+            mirrorMode = false
+            mirrorRunningDisplayId = Display.INVALID_DISPLAY
             releasePipboyWakeLock()
 
             stopCurrentAnimation()
@@ -1140,6 +1151,9 @@ class LEDService : Service() {
             }
             animation.start()
             activeAnimationType = type
+            if (mirrorMode && type == LedAnimationType.AMBIENT) {
+                mirrorRunningDisplayId = currentAmbientDisplayId
+            }
             Log.d(TAG, "startAnimation: STARTED type=$type, activeAnimationType=$activeAnimationType")
         } catch (e: Exception) {
             Log.e(TAG, "startAnimation: EXCEPTION for type=$type", e)
@@ -1177,12 +1191,36 @@ class LEDService : Service() {
         Log.d(TAG, "handleSupplyProjection: forced next resolution, waiting for user to navigate back to mapped app")
     }
 
+    /**
+     * Fallout "mirror bottom screen" toggle. When the companion's PIPBOY signal
+     * arrives with mirror ON and the accessibility service available, switch to
+     * AMBIENT-mirroring whichever display shows the Pip-Boy (per-display
+     * accessibility capture) and return AMBIENT; otherwise leave the effect
+     * untouched. Side effects (mirrorMode, currentAmbientDisplayId) are consumed
+     * by createAnimation + the keep-alive display-follow guard. MediaProjection
+     * can only mirror the default display, hence the accessibility requirement.
+     */
+    private fun resolveMirrorEffect(effect: LedAnimationType, callerPkg: String): LedAnimationType {
+        if (effect != LedAnimationType.PIPBOY ||
+            callerPkg != BifrostAccessibilityService.FALLOUT_PKG
+        ) return effect
+        val wantMirror = PluginPrefs.isMirrorScreen(
+            PluginPrefs.prefs(this), PluginPrefs.FALLOUT_PLUGIN_ID
+        ) && BifrostAccessibilityService.isEnabled(this)
+        mirrorMode = wantMirror
+        if (!wantMirror) return effect
+        currentAmbientDisplayId = BifrostAccessibilityService.falloutDisplayId
+        return LedAnimationType.AMBIENT
+    }
+
     private fun handleExternalDisplay(intent: Intent) {
         if (!isRunning || isStopping.get()) return
 
         val callerPkg = intent.getStringExtra(EXTRA_EXTERNAL_CALLER_PACKAGE) ?: return
         val effectName = intent.getStringExtra(EXTRA_EXTERNAL_EFFECT) ?: return
-        val effect = runCatching { LedAnimationType.valueOf(effectName) }.getOrNull() ?: return
+        var effect = runCatching { LedAnimationType.valueOf(effectName) }.getOrNull() ?: return
+
+        effect = resolveMirrorEffect(effect, callerPkg)
 
         val newPriority = intent.getIntExtra(EXTRA_EXTERNAL_PRIORITY, 50)
         val current = activeExternalOverride
@@ -1209,7 +1247,10 @@ class LEDService : Service() {
         // effect change falls through to the full snapshot + restart path.
         if (current != null && current.callerPackage == callerPkg &&
             current.effect == effect && activeAnimationType == effect &&
-            currentAnimation != null
+            currentAnimation != null &&
+            // In mirror mode, a Pip-Boy move to the other display must restart
+            // the capture — don't keep-alive the stale display.
+            !(mirrorMode && mirrorRunningDisplayId != currentAmbientDisplayId)
         ) {
             currentColor = color
             currentRightColor = rightColor
@@ -1358,6 +1399,8 @@ class LEDService : Service() {
         val snapshot = savedStateBeforeExternalOverride
         activeExternalOverride = null
         savedStateBeforeExternalOverride = null
+        mirrorMode = false
+        mirrorRunningDisplayId = Display.INVALID_DISPLAY
         releasePipboyWakeLock()
 
         // When stopping there's nothing to fade into — apply immediately and
@@ -1541,7 +1584,10 @@ class LEDService : Service() {
     ): LedAnimation? {
         return when (type) {
             LedAnimationType.AMBIENT -> {
-                val useMP = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+                // Mirror mode forces the accessibility capture path: MediaProjection
+                // can only mirror the default display, but mirror mode targets
+                // whichever (possibly secondary) display shows the Pip-Boy.
+                val useMP = !mirrorMode && prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
                 val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
                 AmbientAnimation(
                     ledController,

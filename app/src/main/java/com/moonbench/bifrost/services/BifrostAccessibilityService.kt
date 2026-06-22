@@ -14,6 +14,16 @@ class BifrostAccessibilityService : AccessibilityService() {
         var instance: BifrostAccessibilityService? = null
             private set
 
+        const val FALLOUT_PKG = "com.bethsoft.falloutcompanionapp"
+
+        // Which display the Fallout Pip-Boy companion is currently on. The Thor
+        // has two internal displays; "mirror mode" captures whichever one shows
+        // the Pip-Boy. Updated from window events; defaults to the main display
+        // until the companion is observed.
+        @Volatile
+        var falloutDisplayId: Int = android.view.Display.DEFAULT_DISPLAY
+            private set
+
         fun isEnabled(context: Context): Boolean {
             val enabled = Settings.Secure.getInt(
                 context.contentResolver,
@@ -42,7 +52,16 @@ class BifrostAccessibilityService : AccessibilityService() {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Remember which display the Fallout companion is on (window state/changed
+        // events carry the display id on API 30+). Cheap — no window-content
+        // retrieval — so mirror mode can follow the Pip-Boy across the Thor's
+        // two screens.
+        val e = event ?: return
+        if (e.packageName?.toString() == FALLOUT_PKG) {
+            falloutDisplayId = e.displayId
+        }
+    }
 
     override fun onInterrupt() = Unit
 

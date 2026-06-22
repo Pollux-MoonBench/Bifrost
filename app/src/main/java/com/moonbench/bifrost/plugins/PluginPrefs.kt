@@ -21,6 +21,9 @@ object PluginPrefs {
     const val PREF_UPDATE_PROMPT_SHOWN = "plugin_update_prompt_shown"
     const val PREF_INSTALLED_VERSIONS = "plugin_installed_versions"  // JSON {id:version}
 
+    /** Catalogue id of the Fallout Pip-Boy plugin (the one honouring mirror mode). */
+    const val FALLOUT_PLUGIN_ID = "fallout4-pipboy"
+
     /**
      * Default catalogue. Served from the upstream Bifrost repo's dedicated
      * `plugin-catalog` branch (content-only, gh-pages style — permanent, so the
@@ -54,6 +57,20 @@ object PluginPrefs {
 
     fun markUpdatePromptShown(prefs: SharedPreferences) {
         prefs.edit().putBoolean(PREF_UPDATE_PROMPT_SHOWN, true).apply()
+    }
+
+    /**
+     * Per-plugin "mirror the screen instead of the plugin's native effect"
+     * toggle (OFF by default). Currently only the Fallout Pip-Boy plugin honours
+     * it: ON makes Bifrost AMBIENT-mirror whichever display shows the Pip-Boy
+     * instead of running the event-driven feed. Heavier; needs the accessibility
+     * screenshot service. Keyed by plugin id.
+     */
+    fun isMirrorScreen(prefs: SharedPreferences, id: String): Boolean =
+        prefs.getBoolean("plugin_mirror_screen_$id", false)
+
+    fun setMirrorScreen(prefs: SharedPreferences, id: String, enabled: Boolean) {
+        prefs.edit().putBoolean("plugin_mirror_screen_$id", enabled).apply()
     }
 
     // ---- installed-version map ------------------------------------------

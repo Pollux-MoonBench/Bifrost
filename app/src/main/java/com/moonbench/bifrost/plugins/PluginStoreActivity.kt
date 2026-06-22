@@ -10,6 +10,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.moonbench.bifrost.services.BifrostAccessibilityService
 
 /**
  * The plugin store screen. Lists the catalogue, installs/updates/removes
@@ -163,6 +164,28 @@ class PluginStoreActivity : AppCompatActivity() {
             textSize = 12f
             alpha = 0.7f
         })
+
+        // Per-plugin "mirror screen" toggle — only the Fallout plugin honours it,
+        // and only once installed. ON = AMBIENT-mirror whichever display shows the
+        // Pip-Boy instead of the event-driven feed (heavier; needs the a11y service).
+        if (entry.id == PluginPrefs.FALLOUT_PLUGIN_ID && installed != null) {
+            card.addView(CheckBox(this).apply {
+                text = "Mirror bottom screen (heavier; needs accessibility)"
+                textSize = 13f
+                isChecked = PluginPrefs.isMirrorScreen(prefs, entry.id)
+                setOnCheckedChangeListener { _, checked ->
+                    PluginPrefs.setMirrorScreen(prefs, entry.id, checked)
+                    toast(
+                        when {
+                            checked && !BifrostAccessibilityService.isEnabled(this@PluginStoreActivity) ->
+                                "Mirror on — enable Bifrost's accessibility service in Settings to capture the screen"
+                            checked -> "Mirror mode on"
+                            else -> "Mirror mode off"
+                        }
+                    )
+                }
+            })
+        }
 
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
