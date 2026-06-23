@@ -107,6 +107,61 @@ class LedController {
     }
 
     /**
+     * Write both sticks — left zones at the left colour, right zones at the right
+     * colour — in a SINGLE transact, instead of the two setLedColor() takes when
+     * the sticks differ. Halves the per-frame IPC and (since the writer process
+     * runs a shell per command) the shell-forks on its little cores, which is the
+     * residual stutter source under heavy load. Same masterScale + last-colour
+     * bookkeeping as setLedColor so crossfades still work (left = the re-emit
+     * baseline, matching the old "last call wins" behaviour).
+     */
+    fun setLedColorDual(
+        leftR: Int, leftG: Int, leftB: Int,
+        rightR: Int, rightG: Int, rightB: Int,
+        brightness: Int = 255,
+        leftTop: Boolean = true,
+        leftBottom: Boolean = true,
+        rightTop: Boolean = true,
+        rightBottom: Boolean = true
+    ) {
+        if (pServerBinder == null) return
+        val lr = leftR.coerceIn(0, 255); val lg = leftG.coerceIn(0, 255); val lb = leftB.coerceIn(0, 255)
+        val rr = rightR.coerceIn(0, 255); val rg = rightG.coerceIn(0, 255); val rb = rightB.coerceIn(0, 255)
+        val br = brightness.coerceIn(0, 255)
+        lock.withLock {
+            lastR = lr; lastG = lg; lastB = lb
+            lastLeftTop = leftTop; lastLeftBottom = leftBottom
+            lastRightTop = rightTop; lastRightBottom = rightBottom
+        }
+        emitDual(lr, lg, lb, rr, rg, rb, br, leftTop, leftBottom, rightTop, rightBottom)
+    }
+
+    /** Build one &&-joined command covering all selected zones (left zones use the
+     *  left colour, right zones the right) and write it in a single transact. */
+    private fun emitDual(
+        lr: Int, lg: Int, lb: Int, rr: Int, rg: Int, rb: Int, br: Int,
+        leftTop: Boolean, leftBottom: Boolean, rightTop: Boolean, rightBottom: Boolean
+    ) {
+        val s = masterScale
+        val slr = (lr * s).roundToInt().coerceIn(0, 255)
+        val slg = (lg * s).roundToInt().coerceIn(0, 255)
+        val slb = (lb * s).roundToInt().coerceIn(0, 255)
+        val srr = (rr * s).roundToInt().coerceIn(0, 255)
+        val srg = (rg * s).roundToInt().coerceIn(0, 255)
+        val srb = (rb * s).roundToInt().coerceIn(0, 255)
+        val cmd = StringBuilder(220)
+        if (leftTop) cmd.append("echo 1-").append(slr).append(':').append(slg).append(':').append(slb).append(':').append(br)
+            .append(" > /sys/class/sn3112l/led/brightness")
+        if (leftBottom) { if (cmd.isNotEmpty()) cmd.append(" && "); cmd.append("echo 2-").append(slr).append(':').append(slg).append(':').append(slb).append(':').append(br)
+            .append(" > /sys/class/sn3112l/led/brightness") }
+        if (rightTop) { if (cmd.isNotEmpty()) cmd.append(" && "); cmd.append("echo 1-").append(srr).append(':').append(srg).append(':').append(srb).append(':').append(br)
+            .append(" > /sys/class/sn3112r/led/brightness") }
+        if (rightBottom) { if (cmd.isNotEmpty()) cmd.append(" && "); cmd.append("echo 2-").append(srr).append(':').append(srg).append(':').append(srb).append(':').append(br)
+            .append(" > /sys/class/sn3112r/led/brightness") }
+        if (cmd.isNotEmpty()) executeCommandDirect(cmd.toString())
+    }
+
+    /**
      * Set the master brightness scale (0f..1f) and immediately re-emit the last
      * colour at the new scale. Driving this from 1→0→1 around an animation swap
      * produces a dip-to-black crossfade that masks the hard cut, independent of

@@ -2,9 +2,13 @@ package com.moonbench.bifrost.animations
 
 import android.graphics.Color
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
+import android.os.Process
 import android.os.SystemClock
+import android.util.Log
 import com.moonbench.bifrost.tools.LedController
+import java.io.File
+import java.util.concurrent.TimeUnit
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -70,16 +74,48 @@ class PipBoyAnimation(
         const val PULSE_DIM = 0.4             // menu-nav DIP floor (dims to this, then settles)
         const val STATIC_MS = 380L
         const val STATIC_MUL = 3.0            // scramble brightness — the ONE effect that brightens
+
+        // CPU-affinity pin (see pinRenderThreadToBigCores). The render thread is
+        // light (~8ms CPU/s) but latency-sensitive at 33Hz. Under heavy load the
+        // energy-aware scheduler packs it onto the little cores (measured 92-93%
+        // busy under a Box64 game) where it starves — 3.4× wait/run, ~29
+        // involuntary preempts/s = visible LED stutter — while the big cores sit
+        // ~50% idle and the prime core ~98%. Pinning to the non-little cores fixes
+        // it. Placement, not priority: it already outranks the nice-0 game at -4.
+        const val TAG = "PipBoyAnimation"
+        const val MAX_CORES = 16              // upper bound for the core-probe loop
+        const val AFFINITY_TIMEOUT_MS = 500L  // taskset must return within this
     }
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var running = false
+    // Dedicated render thread: the ~33Hz tick and its blocking sysfs/binder LED
+    // writes run here, NOT on the main looper, so they don't jitter when the main
+    // thread is busy (e.g. Fallout 4 running). THREAD_PRIORITY_DISPLAY (-4) is
+    // Android's render-tier nice value — promptly scheduled under contention,
+    // without the starvation risk of a real-time priority. Created in start(),
+    // torn down in stop(). NB: a core cannot be reserved exclusively without root
+    // (this is a `user` build); a high-priority dedicated thread is the ceiling.
+    private var renderThread: HandlerThread? = null
+    private var renderHandler: Handler? = null
 
-    private var targetColor: Int = greenIfUnset(initialColor)
+    // running / originMs / target{Color,RightColor,Brightness} are written on the
+    // service/broadcast path and read on the render looper, so they MUST be
+    // @Volatile (the external*/pulse*/static* fields below already were — the tick
+    // was always meant to run off the main thread; these were simply missed).
+    @Volatile private var running = false
+
+    @Volatile private var targetColor: Int = greenIfUnset(initialColor)
     private var currentColor: Int = greenIfUnset(initialColor)
-    private var targetRightColor: Int = greenIfUnset(initialRightColor)
+    @Volatile private var targetRightColor: Int = greenIfUnset(initialRightColor)
     private var currentRightColor: Int = greenIfUnset(initialRightColor)
-    private var targetBrightness: Int = 255
+    @Volatile private var targetBrightness: Int = 255
+
+    // Last RGB actually written to each stick (packed; 0 = nothing yet) so an
+    // unchanged frame is skipped. Sentinel is 0, not -1: Color.rgb() always sets
+    // alpha 0xFF so it never returns 0, but 0xFFFFFFFF (-1) IS Color.rgb(255,255,
+    // 255) — a -1 sentinel would wrongly skip a first white frame. Render-thread
+    // only ⇒ no @Volatile needed.
+    private var lastEmitLeft = 0
+    private var lastEmitRight = 0
 
     /** Default to Pip-Boy green when the supplied colour is black/near-black. */
     private fun greenIfUnset(c: Int): Int =
@@ -87,7 +123,7 @@ class PipBoyAnimation(
 
     // Phase origin. Defaults to the moment start() is called; can be re-aligned
     // to the screen's clock via setPhaseOrigin so the pulse tracks in phase.
-    private var originMs: Long = 0L
+    @Volatile private var originMs: Long = 0L
 
     // Flicker + burst are FED from the screen (event-driven), not replicated: the
     // flicker schedule depends on game triggers + multiple instances drawing the
@@ -114,18 +150,14 @@ class PipBoyAnimation(
         return 1.0 - age / BURST_DURATION_MS
     }
 
-    /** Scale [color] by baseFactor × intensity and write to the selected LED
-     *  zone(s). Brightness is in the RGB magnitude. */
-    private fun emitZone(
-        color: Int, baseFactor: Double,
-        lt: Boolean, lb: Boolean, rt: Boolean, rb: Boolean
-    ) {
-        val f = (baseFactor * (targetBrightness / 255.0) * brightnessMul).coerceIn(0.0, 1.0)
+    /** Scale [color]'s channels by f∈[0,1], returned packed (alpha forced 0xFF so
+     *  two equal colours compare equal for the per-frame skip). The single dual
+     *  write + skip live in the tick; this is just the per-channel scale. */
+    private fun scaleColor(color: Int, f: Double): Int {
         val r = (Color.red(color) * f).roundToInt().coerceIn(0, 255)
         val g = (Color.green(color) * f).roundToInt().coerceIn(0, 255)
         val b = (Color.blue(color) * f).roundToInt().coerceIn(0, 255)
-        ledController.setLedColor(r, g, b,
-            leftTop = lt, leftBottom = lb, rightTop = rt, rightBottom = rb)
+        return Color.rgb(r, g, b)
     }
 
     /** Brief brightness pop for a menu-item switch. Modulates the running
@@ -220,16 +252,26 @@ class PipBoyAnimation(
                 else -> brightnessMul = 1.0
             }
 
-            // Uniform brightness per stick (left = currentColor, right =
-            // currentRightColor). Pulse + flicker + burst only — the vscan bar
-            // sweep was dropped (a 2D screen effect doesn't map to point LEDs,
-            // and its roll timing is event-driven anyway).
-            emitZone(currentColor, baseFactor,
-                lt = true, lb = true, rt = false, rb = false)
-            emitZone(currentRightColor, baseFactor,
-                lt = false, lb = false, rt = true, rb = true)
+            // Both sticks (left = currentColor, right = currentRightColor) in ONE
+            // transact, and skipped entirely when neither changed since last frame
+            // — both cut load on the little-core-bound pservice writer (the
+            // residual stutter source under load). Flicker/burst/scramble change
+            // the RGB ⇒ they still write every frame. (Vscan bar was dropped: a 2D
+            // screen effect doesn't map to point LEDs.)
+            val f = (baseFactor * (targetBrightness / 255.0) * brightnessMul).coerceIn(0.0, 1.0)
+            val leftRgb = scaleColor(currentColor, f)
+            val rightRgb = scaleColor(currentRightColor, f)
+            if (leftRgb != lastEmitLeft || rightRgb != lastEmitRight) {
+                lastEmitLeft = leftRgb
+                lastEmitRight = rightRgb
+                ledController.setLedColorDual(
+                    Color.red(leftRgb), Color.green(leftRgb), Color.blue(leftRgb),
+                    Color.red(rightRgb), Color.green(rightRgb), Color.blue(rightRgb),
+                    leftTop = true, leftBottom = true, rightTop = true, rightBottom = true
+                )
+            }
 
-            handler.postDelayed(this, adjustedAnimationDelay(TICK_MS, targetBrightness))
+            renderHandler?.postDelayed(this, adjustedAnimationDelay(TICK_MS, targetBrightness))
         }
     }
 
@@ -238,17 +280,76 @@ class PipBoyAnimation(
         running = true
         // setPhaseOrigin may have already aligned the clock; default to now.
         if (originMs == 0L) originMs = SystemClock.elapsedRealtime()
-        handler.post(runnable)
+
+        // Spin the dedicated render looper at display priority, then kick the tick.
+        val thread = HandlerThread("BifrostPipBoyRender", Process.THREAD_PRIORITY_DISPLAY)
+        thread.start()
+        renderThread = thread
+        renderHandler = Handler(thread.looper).also { it.post(runnable) }
+        // Escape the energy-aware scheduler's little-core packing (else it starves
+        // under load). threadId is the kernel tid, valid once the looper is ready.
+        pinRenderThreadToBigCores(thread.threadId)
     }
 
     override fun stop() {
         running = false
-        handler.removeCallbacksAndMessages(null)
+        renderHandler?.removeCallbacksAndMessages(null)
+        renderThread?.quitSafely()
+        runCatching { renderThread?.join(250) }   // bounded: never blocks forever
+        renderThread = null
+        renderHandler = null
+        // The render thread has fully stopped, so this black write is the last
+        // LED op (no concurrent writer) — the sticks reliably go dark.
         ledController.setLedColor(
             0, 0, 0,
             leftTop = true, leftBottom = true,
             rightTop = true, rightBottom = true
         )
+    }
+
+    /**
+     * Pin the render thread to the big/prime CPU cluster so the energy-aware
+     * scheduler can't park it on the little cores, where it starves under load
+     * (see companion note). Best-effort via toybox `taskset` — Android exposes no
+     * sched_setaffinity API, and same-uid so no CAP_SYS_NICE is needed. Any
+     * failure is non-fatal: the LED runs unpinned, exactly as before this change.
+     */
+    private fun pinRenderThreadToBigCores(tid: Int) {
+        if (tid <= 0) return
+        val mask = bigCoreMask()
+        if (mask == 0L) return
+        val hexMask = java.lang.Long.toHexString(mask)
+        runCatching {
+            val proc = ProcessBuilder("/system/bin/taskset", "-p", hexMask, tid.toString())
+                .redirectErrorStream(true)
+                .start()
+            if (!proc.waitFor(AFFINITY_TIMEOUT_MS, TimeUnit.MILLISECONDS)) proc.destroy()
+        }.onFailure { Log.w(TAG, "render-thread affinity pin failed; running unpinned", it) }
+    }
+
+    /**
+     * Affinity mask of the non-little cores: every core whose max frequency is
+     * above the slowest cluster's. Returns 0 when topology is uniform or can't be
+     * read (caller then skips pinning). Loop bounded by MAX_CORES.
+     */
+    private fun bigCoreMask(): Long {
+        val freqs = ArrayList<Long>(MAX_CORES)
+        var core = 0
+        while (core < MAX_CORES) {
+            val f = runCatching {
+                File("/sys/devices/system/cpu/cpu$core/cpufreq/cpuinfo_max_freq")
+                    .readText().trim().toLong()
+            }.getOrNull() ?: break
+            freqs.add(f)
+            core++
+        }
+        if (freqs.size < 2) return 0L
+        val slowest = freqs.minOrNull() ?: return 0L
+        var mask = 0L
+        for (i in freqs.indices) {
+            if (freqs[i] > slowest) mask = mask or (1L shl i)
+        }
+        return mask
     }
 
     /**
