@@ -17,7 +17,7 @@ import java.util.zip.ZipOutputStream
 object PresetArchiveTransfer {
 
     private const val ARCHIVE_SCHEMA = "bifrost_preset_bundle"
-    // v2 adds the optional generic `livePolicies` block (package → LivePolicy).
+    // v2 adds the optional generic `livePolicies` block (effect name → LivePolicy).
     // Older Bifrost reads a v2 bundle fine — it imports the presets and ignores
     // the block it doesn't know; newer Bifrost reads a v1 bundle fine — no block.
     private const val ARCHIVE_VERSION = 2
@@ -218,9 +218,9 @@ object PresetArchiveTransfer {
     }
 
     /**
-     * Parse the generic `livePolicies` block: a JSON object of caller-package →
+     * Parse the generic `livePolicies` block: a JSON object of effect name →
      * policy object. Unknown/garbage entries are skipped with a warning. Generic
-     * — no per-app knowledge; any plugin can declare policies for its package(s).
+     * — no per-app knowledge; any plugin can declare policies for the effects it owns.
      */
     private fun parseLivePolicies(
         obj: JSONObject?,
@@ -230,13 +230,13 @@ object PresetArchiveTransfer {
         val out = linkedMapOf<String, LivePolicy>()
         val keys = obj.keys()
         while (keys.hasNext()) {
-            val pkg = keys.next()
-            val policyObj = obj.optJSONObject(pkg)
+            val effect = keys.next()
+            val policyObj = obj.optJSONObject(effect)
             if (policyObj == null) {
-                warnings += "livePolicies: entry for '$pkg' is not an object; skipping."
+                warnings += "livePolicies: entry for '$effect' is not an object; skipping."
                 continue
             }
-            out[pkg] = LivePolicy.fromJson(policyObj)
+            out[effect] = LivePolicy.fromJson(policyObj)
         }
         return out
     }

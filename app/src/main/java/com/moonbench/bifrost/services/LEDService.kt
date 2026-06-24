@@ -135,6 +135,9 @@ class LEDService : Service() {
 
         /** Minimum LED scale applied when screen brightness is at its lowest (0–255 → 0.25). */
         private const val ADAPTIVE_BRIGHTNESS_MIN_SCALE = 0.25f
+        // Secondary-display brightness level (0..100) on the AYN Thor. Not exposed in
+        // android.provider.Settings.System constants, so referenced by its raw key.
+        private const val SETTING_DUAL_SCREEN_BRIGHTNESS = "dual_screen_brightness_level"
         private const val EXTRA_BATTERY_LOW_COLOR_OVERRIDE = "batteryLowColorOverride"
         private const val EXTRA_BATTERY_MID_COLOR_OVERRIDE = "batteryMidColorOverride"
         private const val EXTRA_BATTERY_HIGH_COLOR_OVERRIDE = "batteryHighColorOverride"
@@ -254,10 +257,13 @@ class LEDService : Service() {
         // A live-feed policy's brightness cap is authoritative when present: the LED
         // tops out at cap% of full, scaled by the chosen screen's level (so e.g.
         // the sticks track the bottom screen). This overrides the feed's own
-        // intensity and adaptive brightness, by design.
-        currentLivePolicy?.brightnessCapPercent?.let { cap ->
+        // intensity and adaptive brightness, by design. Read into locals so the
+        // policy + cap are sampled once (consistent, robust to field reassignment).
+        val policy = currentLivePolicy
+        val cap = policy?.brightnessCapPercent
+        if (policy != null && cap != null) {
             val capScale = cap.coerceIn(0, 100) / 100f
-            val srcScale = when (currentLivePolicy?.brightnessSource) {
+            val srcScale = when (policy.brightnessSource) {
                 BrightnessSource.MAIN_SCREEN -> mainScreenLevelPercent() / 100f
                 BrightnessSource.BOTTOM_SCREEN -> bottomScreenLevelPercent() / 100f
                 else -> 1f
@@ -280,7 +286,7 @@ class LEDService : Service() {
      *  where the Pip-Boy companion is shown). Defaults to 50 if unavailable. */
     private fun bottomScreenLevelPercent(): Int =
         runCatching {
-            Settings.System.getInt(contentResolver, "dual_screen_brightness_level")
+            Settings.System.getInt(contentResolver, SETTING_DUAL_SCREEN_BRIGHTNESS)
         }.getOrDefault(50).coerceIn(0, 100)
 
     /**
@@ -1307,10 +1313,16 @@ class LEDService : Service() {
             return
         }
 
-        // Generic live-feed policy for this caller (plugin-declared). It transforms
-        // the incoming colour (stabilize) and governs brightness (effectiveBrightness).
-        val policy = LivePolicyStore.forEffect(prefs, effect.name)
-        currentLivePolicy = policy
+        // Generic live-feed policy for this effect (plugin-declared): transforms the
+        // incoming colour (stabilize) and governs brightness (effectiveBrightness).
+        // Resolved at most once per override — forEffect reads + parses the prefs
+        // JSON, and the feed is per-frame, so we must NOT repeat it every heartbeat.
+        // Reuse the cached policy while the same effect stays active; re-resolve only
+        // on a fresh or changed override.
+        if (current == null || current.effect != effect) {
+            currentLivePolicy = LivePolicyStore.forEffect(prefs, effect.name)
+        }
+        val policy = currentLivePolicy
         val rawColor = intent.getIntExtra(EXTRA_EXTERNAL_COLOR, currentColor)
         val rawRightColor = intent.getIntExtra(EXTRA_EXTERNAL_COLOR_RIGHT, rawColor)
         val color = if (policy?.colorStabilize == true) stabilizeColor(rawColor, leftStick = true, policy.duckSeverity) else rawColor

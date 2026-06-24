@@ -3,6 +3,7 @@ package com.moonbench.bifrost.plugins
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.util.Log
 import com.moonbench.bifrost.LedPreset
 import com.moonbench.bifrost.PresetArchiveTransfer
 import com.moonbench.bifrost.external.ExternalProfileStore
@@ -28,6 +29,7 @@ import java.io.File
 object PluginInstaller {
 
     private const val PREF_PRESETS = "presets_json"
+    private const val TAG = "PluginInstaller"
 
     sealed class Result {
         data class Success(val presetNames: List<String>) : Result()
@@ -54,7 +56,9 @@ object PluginInstaller {
         } catch (t: Throwable) {
             return Result.Failure("import failed: ${t.message}")
         } finally {
-            cache.delete()
+            if (cache.exists() && !cache.delete()) {
+                Log.w(TAG, "could not delete plugin cache: ${cache.absolutePath}")
+            }
         }
         if (imported.errors.isNotEmpty()) return Result.Failure(imported.errors.joinToString("; "))
         if (imported.presets.isEmpty()) return Result.Failure("bundle contains no presets")
@@ -72,8 +76,8 @@ object PluginInstaller {
         val apm = AppProfileManager(prefs)
         imported.mappings.forEach { (pkg, presetName) -> apm.setMapping(pkg, presetName) }
 
-        // Register the generic live-feed policies (caller package → policy), which
-        // Bifrost applies to that caller's external-display feed. Owner-tagged so
+        // Register the generic live-feed policies (effect name → policy), which
+        // Bifrost applies to live overrides of that effect. Owner-tagged so
         // uninstall removes exactly these.
         LivePolicyStore.putAll(prefs, entry.id, imported.livePolicies)
 

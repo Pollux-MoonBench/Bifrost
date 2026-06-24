@@ -86,8 +86,8 @@ object LivePolicyStore {
         if (policies.isEmpty()) return
         val root = runCatching { JSONObject(prefs.getString(PREF, null) ?: "{}") }
             .getOrDefault(JSONObject())
-        policies.forEach { (pkg, policy) ->
-            root.put(pkg, policy.toJson().put(OWNER_KEY, ownerPluginId))
+        policies.forEach { (effect, policy) ->
+            root.put(effect, policy.toJson().put(OWNER_KEY, ownerPluginId))
         }
         prefs.edit().putString(PREF, root.toString()).apply()
     }
