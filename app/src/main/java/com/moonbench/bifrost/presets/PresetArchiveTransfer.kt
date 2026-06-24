@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.CancellationSignal
 import com.moonbench.bifrost.animations.LedAnimationType
+import com.moonbench.bifrost.plugins.LivePolicy
 import com.moonbench.bifrost.tools.PerformanceProfile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,7 +17,10 @@ import java.util.zip.ZipOutputStream
 object PresetArchiveTransfer {
 
     private const val ARCHIVE_SCHEMA = "bifrost_preset_bundle"
-    private const val ARCHIVE_VERSION = 1
+    // v2 adds the optional generic `livePolicies` block (package → LivePolicy).
+    // Older Bifrost reads a v2 bundle fine — it imports the presets and ignores
+    // the block it doesn't know; newer Bifrost reads a v1 bundle fine — no block.
+    private const val ARCHIVE_VERSION = 2
     private const val MANIFEST_ENTRY_NAME = "manifest.json"
     private const val ICONS_DIR_PREFIX = "icons/"
 
@@ -30,7 +34,10 @@ object PresetArchiveTransfer {
         val presets: List<LedPreset>,
         val mappings: Map<String, String>,
         val warnings: List<String>,
-        val errors: List<String>
+        val errors: List<String>,
+        // Generic plugin live-feed policies (caller package → policy). Empty for
+        // ordinary user preset bundles; populated by plugins that declare them.
+        val livePolicies: Map<String, LivePolicy> = emptyMap()
     )
 
     fun exportToUri(
@@ -199,13 +206,39 @@ object PresetArchiveTransfer {
         }
 
         val mappings = parseMappings(context, manifest.optJSONObject("appProfileMappings"), warnings, cancelSignal)
+        val livePolicies = parseLivePolicies(manifest.optJSONObject("livePolicies"), warnings)
 
         return ImportResult(
             presets = importedPresets,
             mappings = mappings,
             warnings = warnings,
-            errors = errors
+            errors = errors,
+            livePolicies = livePolicies
         )
+    }
+
+    /**
+     * Parse the generic `livePolicies` block: a JSON object of caller-package →
+     * policy object. Unknown/garbage entries are skipped with a warning. Generic
+     * — no per-app knowledge; any plugin can declare policies for its package(s).
+     */
+    private fun parseLivePolicies(
+        obj: JSONObject?,
+        warnings: MutableList<String>
+    ): Map<String, LivePolicy> {
+        if (obj == null) return emptyMap()
+        val out = linkedMapOf<String, LivePolicy>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val pkg = keys.next()
+            val policyObj = obj.optJSONObject(pkg)
+            if (policyObj == null) {
+                warnings += "livePolicies: entry for '$pkg' is not an object; skipping."
+                continue
+            }
+            out[pkg] = LivePolicy.fromJson(policyObj)
+        }
+        return out
     }
 
     private fun parsePreset(

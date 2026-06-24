@@ -38,6 +38,10 @@ import androidx.core.content.ContextCompat
 import com.moonbench.bifrost.MainActivity
 import com.moonbench.bifrost.R
 import com.moonbench.bifrost.plugins.PluginPrefs
+import com.moonbench.bifrost.plugins.LivePolicy
+import com.moonbench.bifrost.plugins.LivePolicyStore
+import com.moonbench.bifrost.plugins.BrightnessSource
+import kotlin.math.roundToInt
 import com.moonbench.bifrost.animations.AmbiAuroraAnimation
 import com.moonbench.bifrost.animations.AmbientAnimation
 import com.moonbench.bifrost.animations.AudioReactiveAnimation
@@ -204,6 +208,14 @@ class LEDService : Service() {
 
     private var activeExternalOverride: ExternalOverrideState? = null
     private var externalOverrideLastSeenMs: Long = 0L   // lease renewal timestamp
+
+    // Generic plugin live-feed policy in effect for the active external override
+    // (looked up by the override's caller package). Null when no policy applies.
+    // stableLeft/RightColor are the colour-stabilizer's held hue per stick (0 =
+    // unset); reset when an override begins or ends. See LivePolicy / stabilizeColor.
+    private var currentLivePolicy: LivePolicy? = null
+    private var stableLeftColor: Int = 0
+    private var stableRightColor: Int = 0
     private var externalExpiryRunnable: Runnable? = null
     private var crossfadeRunnable: Runnable? = null
     private var savedStateBeforeExternalOverride: ExternalOverrideSnapshot? = null
@@ -239,8 +251,71 @@ class LEDService : Service() {
     }
 
     private fun effectiveBrightness(): Int {
+        // A live-feed policy's brightness cap is authoritative when present: the LED
+        // tops out at cap% of full, scaled by the chosen screen's level (so e.g.
+        // the sticks track the bottom screen). This overrides the feed's own
+        // intensity and adaptive brightness, by design.
+        currentLivePolicy?.brightnessCapPercent?.let { cap ->
+            val capScale = cap.coerceIn(0, 100) / 100f
+            val srcScale = when (currentLivePolicy?.brightnessSource) {
+                BrightnessSource.MAIN_SCREEN -> mainScreenLevelPercent() / 100f
+                BrightnessSource.BOTTOM_SCREEN -> bottomScreenLevelPercent() / 100f
+                else -> 1f
+            }
+            return (255f * capScale * srcScale).roundToInt().coerceIn(0, 255)
+        }
         if (!currentAdaptiveBrightness) return currentBrightness
         return (currentBrightness * screenBrightnessScale()).toInt().coerceIn(0, 255)
+    }
+
+    /** Main system screen brightness as 0..100. */
+    private fun mainScreenLevelPercent(): Int {
+        val raw = runCatching {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrDefault(255).coerceIn(0, 255)
+        return (raw * 100) / 255
+    }
+
+    /** Dual/bottom screen brightness as 0..100 (the AYN Thor's second display,
+     *  where the Pip-Boy companion is shown). Defaults to 50 if unavailable. */
+    private fun bottomScreenLevelPercent(): Int =
+        runCatching {
+            Settings.System.getInt(contentResolver, "dual_screen_brightness_level")
+        }.getOrDefault(50).coerceIn(0, 100)
+
+    /**
+     * Colour-stabilizer for a live feed (driven by [LivePolicy.colorStabilize]).
+     * A "collapse" frame — the established [stable] hue with channels dropped out
+     * (a transmission glitch that reads as a wrong/red flash) — is rejected: the
+     * hue is held and the drop is expressed as a brightness DUCK toward the
+     * dropout's own brightness, scaled by [duckSeverity]. A genuinely new hue (a
+     * channel rising, or a frame not markedly dimmer) is adopted as the new stable
+     * hue. Per-stick state (stableLeft/RightColor); 0 = unset (first frame adopts).
+     */
+    private fun stabilizeColor(incoming: Int, leftStick: Boolean, duckSeverity: Float): Int {
+        val stable = if (leftStick) stableLeftColor else stableRightColor
+        if (stable == 0) {
+            if (leftStick) stableLeftColor = incoming else stableRightColor = incoming
+            return incoming
+        }
+        val sr = Color.red(stable); val sg = Color.green(stable); val sb = Color.blue(stable)
+        val cr = Color.red(incoming); val cg = Color.green(incoming); val cb = Color.blue(incoming)
+        val tol = 10
+        val subset = cr <= sr + tol && cg <= sg + tol && cb <= sb + tol
+        val markedlyDimmer = (cr + cg + cb) * 10 < (sr + sg + sb) * 6   // < 60% total ⇒ a dropout
+        if (subset && markedlyDimmer) {
+            val lumaStable = 0.299 * sr + 0.587 * sg + 0.114 * sb
+            val lumaIn = 0.299 * cr + 0.587 * cg + 0.114 * cb
+            val ratio = if (lumaStable > 1.0) (lumaIn / lumaStable).coerceIn(0.0, 1.0) else 1.0
+            val f = 1.0 - duckSeverity * (1.0 - ratio)   // brightness duck of the held hue
+            return Color.rgb(
+                (sr * f).roundToInt().coerceIn(0, 255),
+                (sg * f).roundToInt().coerceIn(0, 255),
+                (sb * f).roundToInt().coerceIn(0, 255)
+            )
+        }
+        if (leftStick) stableLeftColor = incoming else stableRightColor = incoming
+        return incoming
     }
 
     private fun applyAdaptiveBrightnessToAnimation() {
@@ -1001,6 +1076,9 @@ class LEDService : Service() {
             isAppProfileSuppressed = false
             activeExternalOverride = null
             savedStateBeforeExternalOverride = null
+            currentLivePolicy = null
+            stableLeftColor = 0
+            stableRightColor = 0
             mirrorMode = false
             mirrorRunningDisplayId = Display.INVALID_DISPLAY
             releasePipboyWakeLock()
@@ -1229,8 +1307,14 @@ class LEDService : Service() {
             return
         }
 
-        val color = intent.getIntExtra(EXTRA_EXTERNAL_COLOR, currentColor)
-        val rightColor = intent.getIntExtra(EXTRA_EXTERNAL_COLOR_RIGHT, color)
+        // Generic live-feed policy for this caller (plugin-declared). It transforms
+        // the incoming colour (stabilize) and governs brightness (effectiveBrightness).
+        val policy = LivePolicyStore.forEffect(prefs, effect.name)
+        currentLivePolicy = policy
+        val rawColor = intent.getIntExtra(EXTRA_EXTERNAL_COLOR, currentColor)
+        val rawRightColor = intent.getIntExtra(EXTRA_EXTERNAL_COLOR_RIGHT, rawColor)
+        val color = if (policy?.colorStabilize == true) stabilizeColor(rawColor, leftStick = true, policy.duckSeverity) else rawColor
+        val rightColor = if (policy?.colorStabilize == true) stabilizeColor(rawRightColor, leftStick = false, policy.duckSeverity) else rawRightColor
         val intensity = intent.getIntExtra(EXTRA_EXTERNAL_INTENSITY, currentBrightness).coerceIn(0, 255)
         val speed = intent.getFloatExtra(EXTRA_EXTERNAL_SPEED, currentSpeed).coerceIn(0f, 1f)
         val smoothness = intent.getFloatExtra(EXTRA_EXTERNAL_SMOOTHNESS, currentSmoothness).coerceIn(0f, 1f)
@@ -1258,7 +1342,7 @@ class LEDService : Service() {
             currentAnimation?.let { anim ->
                 anim.setTargetColor(color)
                 anim.setTargetRightColor(rightColor)
-                anim.setTargetBrightness(intensity)
+                anim.setTargetBrightness(effectiveBrightness())   // honours the live-feed brightness policy
                 // Drift correction: re-anchor a deterministic effect (PIPBOY) to
                 // the caller's fresh clock on each heartbeat — keeps the seeded
                 // flicker/vscan in phase without a restart.
@@ -1399,6 +1483,9 @@ class LEDService : Service() {
         val snapshot = savedStateBeforeExternalOverride
         activeExternalOverride = null
         savedStateBeforeExternalOverride = null
+        currentLivePolicy = null
+        stableLeftColor = 0
+        stableRightColor = 0
         mirrorMode = false
         mirrorRunningDisplayId = Display.INVALID_DISPLAY
         releasePipboyWakeLock()

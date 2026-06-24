@@ -60,8 +60,9 @@ object PluginInstaller {
         if (imported.presets.isEmpty()) return Result.Failure("bundle contains no presets")
 
         val owner = ownerOf(entry.id)
-        // Clear any prior version's presets first (clean update/re-install).
+        // Clear any prior version's presets + live policies first (clean update).
         ExternalProfileStore.removePresetsOwnedBy(prefs, owner)
+        LivePolicyStore.removeByOwner(prefs, entry.id)
 
         val list = readPresets(prefs)
         imported.presets.forEach { list.put(presetToJson(it, owner)) }
@@ -70,6 +71,11 @@ object PluginInstaller {
         // Apply the app→preset mappings (so app-profile mode auto-plays it).
         val apm = AppProfileManager(prefs)
         imported.mappings.forEach { (pkg, presetName) -> apm.setMapping(pkg, presetName) }
+
+        // Register the generic live-feed policies (caller package → policy), which
+        // Bifrost applies to that caller's external-display feed. Owner-tagged so
+        // uninstall removes exactly these.
+        LivePolicyStore.putAll(prefs, entry.id, imported.livePolicies)
 
         PluginPrefs.setInstalled(prefs, entry.id, entry.version)
         return Result.Success(imported.presets.map { it.name })
@@ -80,6 +86,7 @@ object PluginInstaller {
         if (removed.isNotEmpty()) {
             AppProfileManager(prefs).removeMappingsReferencing(removed)
         }
+        LivePolicyStore.removeByOwner(prefs, entry.id)
         PluginPrefs.removeInstalled(prefs, entry.id)
         return Result.Success(removed)
     }
