@@ -1,6 +1,6 @@
 {
   "schema": "bifrost_preset_bundle",
-  "version": 1,
+  "version": 2,
   "presets": [
     {
       "name": "Pip-Boy",
@@ -25,5 +25,13 @@
   ],
   "appProfileMappings": {
     "com.bethsoft.falloutcompanionapp": "Pip-Boy"
+  },
+  "livePolicies": {
+    "PIPBOY": {
+      "brightnessCapPercent": 30,
+      "brightnessSource": "BOTTOM_SCREEN",
+      "colorStabilize": true,
+      "duckSeverity": 0.5
+    }
   }
 }
