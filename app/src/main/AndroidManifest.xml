@@ -88,6 +88,7 @@
                 <action android:name="com.moonbench.bifrost.api.ACTION_CLEAR" />
                 <action android:name="com.moonbench.bifrost.api.ACTION_INSTALL_PROFILE" />
                 <action android:name="com.moonbench.bifrost.api.ACTION_UNINSTALL_PROFILE" />
+                <action android:name="com.moonbench.bifrost.api.ACTION_QUERY_PLUGIN" />
                 <action android:name="com.moonbench.bifrost.api.ACTION_PULSE" />
             </intent-filter>
         </receiver>

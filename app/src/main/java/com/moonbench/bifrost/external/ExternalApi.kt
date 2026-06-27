@@ -13,6 +13,7 @@ object ExternalApi {
     const val ACTION_CLEAR = "com.moonbench.bifrost.api.ACTION_CLEAR"
     const val ACTION_INSTALL_PROFILE = "com.moonbench.bifrost.api.ACTION_INSTALL_PROFILE"
     const val ACTION_UNINSTALL_PROFILE = "com.moonbench.bifrost.api.ACTION_UNINSTALL_PROFILE"
+    const val ACTION_QUERY_PLUGIN = "com.moonbench.bifrost.api.ACTION_QUERY_PLUGIN"
 
     // Lightweight transient trigger — modulates the running effect in place
     // (a brief pulse or static scramble) without replacing the override.
@@ -48,6 +49,7 @@ object ExternalApi {
     const val EXTRA_BURST_WALL_MS = "burstWallMs"
 
     const val EXTRA_PROFILE_NAME = "profileName"
+    const val EXTRA_PLUGIN_ID = "pluginId"
     const val EXTRA_PROFILE_REPLACE_IF_EXISTS = "replaceIfExists"
     const val EXTRA_SATURATION_BOOST = "saturationBoost"
     const val EXTRA_USE_CUSTOM_SAMPLING = "useCustomSampling"
@@ -72,6 +74,7 @@ object ExternalApi {
     const val RESULT_REJECTED_UNAUTHORIZED = -4
     const val RESULT_REJECTED_RATE_LIMITED = -5
     const val RESULT_REJECTED_UNKNOWN_ACTION = -6
+    const val RESULT_NOT_FOUND = 1
 
     const val MAX_DURATION_MS = 600_000L
     const val MAX_REQUEST_ID_LENGTH = 64

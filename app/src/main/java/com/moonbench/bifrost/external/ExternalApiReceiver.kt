@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.util.Log
+import com.moonbench.bifrost.plugins.PluginPrefs
 import com.moonbench.bifrost.services.LEDService
 
 class ExternalApiReceiver : BroadcastReceiver() {
@@ -27,6 +28,11 @@ class ExternalApiReceiver : BroadcastReceiver() {
         val callerPackage = resolveCallerPackage(context, callerUid)
         if (callerPackage == null) {
             setResult(ExternalApi.RESULT_REJECTED_UNAUTHORIZED, null)
+            return
+        }
+
+        if (intent.action == ExternalApi.ACTION_QUERY_PLUGIN) {
+            handlePluginQuery(context, intent)
             return
         }
 
@@ -106,6 +112,27 @@ class ExternalApiReceiver : BroadcastReceiver() {
                 val prefs = context.getSharedPreferences(ExternalApiGate.PREFS_NAME, Context.MODE_PRIVATE)
                 ExternalProfileStore.uninstallManagedPreset(prefs, cmd.callerPackage, cmd.profileName)
             }
+        }
+    }
+
+    private fun handlePluginQuery(context: Context, intent: Intent) {
+        val apiVersion = intent.getIntExtra(ExternalApi.EXTRA_API_VERSION, ExternalApi.API_VERSION)
+        if (apiVersion != ExternalApi.API_VERSION) {
+            setResult(ExternalApi.RESULT_REJECTED_VERSION, null)
+            return
+        }
+
+        val pluginId = intent.getStringExtra(ExternalApi.EXTRA_PLUGIN_ID)?.trim()
+        if (pluginId.isNullOrEmpty()) {
+            setResult(ExternalApi.RESULT_REJECTED_VALIDATION, null)
+            return
+        }
+
+        val installedVersion = PluginPrefs.installedVersion(PluginPrefs.prefs(context), pluginId)
+        if (installedVersion != null && installedVersion > 0) {
+            setResult(ExternalApi.RESULT_ACCEPTED, "$pluginId:$installedVersion")
+        } else {
+            setResult(ExternalApi.RESULT_NOT_FOUND, pluginId)
         }
     }
 

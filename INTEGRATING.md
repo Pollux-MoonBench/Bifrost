@@ -18,7 +18,7 @@ Bifrost exposes a broadcast-based IPC API that lets other apps on the device dri
 6. [Available effects](#6--available-effects)
 7. [ACTION_DISPLAY — live override](#7--action_display--live-override)
 8. [ACTION_CLEAR](#8--action_clear)
-9. [ACTION_INSTALL_PROFILE / ACTION_UNINSTALL_PROFILE](#9--action_install_profile--action_uninstall_profile)
+9. [ACTION_INSTALL_PROFILE / ACTION_UNINSTALL_PROFILE / ACTION_QUERY_PLUGIN](#9--action_install_profile--action_uninstall_profile--action_query_plugin)
 10. [Result codes](#10--result-codes)
 11. [Complete wrapper class](#11--complete-wrapper-class)
 12. [Java example](#12--java-example)
@@ -70,6 +70,7 @@ object BifrostApi {
     const val ACTION_CLEAR             = "com.moonbench.bifrost.api.ACTION_CLEAR"
     const val ACTION_INSTALL_PROFILE   = "com.moonbench.bifrost.api.ACTION_INSTALL_PROFILE"
     const val ACTION_UNINSTALL_PROFILE = "com.moonbench.bifrost.api.ACTION_UNINSTALL_PROFILE"
+    const val ACTION_QUERY_PLUGIN      = "com.moonbench.bifrost.api.ACTION_QUERY_PLUGIN"
 
     // ── Protocol ──────────────────────────────────────────────────────────
     const val API_VERSION        = 1
@@ -97,6 +98,7 @@ object BifrostApi {
 
     // ── INSTALL_PROFILE additional extras ────────────────────────────────
     const val EXTRA_PROFILE_NAME              = "profileName"
+    const val EXTRA_PLUGIN_ID                 = "pluginId"
     const val EXTRA_PROFILE_REPLACE_IF_EXISTS = "replaceIfExists"      // Boolean
     const val EXTRA_SATURATION_BOOST          = "saturationBoost"      // Float 0.0–1.0
     const val EXTRA_USE_CUSTOM_SAMPLING       = "useCustomSampling"    // Boolean
@@ -119,6 +121,7 @@ object BifrostApi {
     const val RESULT_REJECTED_UNAUTHORIZED = -4  // caller UID could not be resolved
     const val RESULT_REJECTED_RATE_LIMITED = -5  // > 4 commands/s
     const val RESULT_REJECTED_UNKNOWN_ACTION = -6
+    const val RESULT_NOT_FOUND             =  1  // plugin query miss
 }
 ```
 
@@ -281,7 +284,7 @@ Always call this from `onPause` / `onStop` if you used `UNTIL_EXPLICIT_CLEAR` or
 
 ---
 
-## 9 — `ACTION_INSTALL_PROFILE` / `ACTION_UNINSTALL_PROFILE`
+## 9 — `ACTION_INSTALL_PROFILE` / `ACTION_UNINSTALL_PROFILE` / `ACTION_QUERY_PLUGIN`
 
 Install a named preset that appears in Bifrost's preset carousel alongside the user's own presets. Good for shipping a branded theme with your app.
 
@@ -309,6 +312,13 @@ sendToBifrost(context, BifrostApi.ACTION_UNINSTALL_PROFILE) {
 
 **`replaceIfExists`:** if `false` (default), a second install with the same name is a no-op. Set to `true` to update the preset on each app version upgrade.
 
+**Plugin query:** use an ordered `ACTION_QUERY_PLUGIN` broadcast with
+`EXTRA_PLUGIN_ID` to check whether a Plugin Store bundle is installed. Bifrost
+returns `RESULT_ACCEPTED` with `resultData = "<pluginId>:<version>"` when the
+plugin is installed, or `RESULT_NOT_FOUND` when it is not. This query does not
+require the third-party LED-control toggle because it only reports Bifrost's own
+plugin inventory.
+
 ---
 
 ## 10 — Result codes
@@ -324,6 +334,7 @@ These are only returned when you use `sendOrderedBroadcast`. Plain `sendBroadcas
 | `RESULT_REJECTED_UNAUTHORIZED` | -4 | Caller UID couldn't be resolved to a package. Should not happen under normal circumstances. |
 | `RESULT_REJECTED_RATE_LIMITED` | -5 | More than ~4 commands/second from your UID. Back off and retry. |
 | `RESULT_REJECTED_UNKNOWN_ACTION` | -6 | Action string not recognised. Check for typos. |
+| `RESULT_NOT_FOUND` | 1 | Plugin query miss. |
 
 `resultData` contains your `requestId` string when the result is `RESULT_ACCEPTED`, useful for correlating asynchronous acknowledgements.
 
