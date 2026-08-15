@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.CancellationSignal
+import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.plugins.LivePolicy
 import com.moonbench.bifrost.tools.PerformanceProfile
@@ -58,6 +59,7 @@ object PresetArchiveTransfer {
             presetJson.put("performanceProfile", preset.performanceProfile.name)
             presetJson.put("color", preset.color)
             presetJson.put("rightColor", preset.rightColor)
+            presetJson.put("fadeEndColor", preset.fadeEndColor)
             presetJson.put("brightness", preset.brightness)
             presetJson.put("speed", preset.speed.toDouble())
             presetJson.put("smoothness", preset.smoothness.toDouble())
@@ -304,6 +306,7 @@ object PresetArchiveTransfer {
             performanceProfile = profile,
             color = color,
             rightColor = obj.optInt("rightColor", color),
+            fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
             brightness = obj.optInt("brightness", 255).coerceIn(0, 255),
             speed = obj.optDouble("speed", 0.5).toFloat().coerceIn(0f, 1f),
             smoothness = obj.optDouble("smoothness", 0.5).toFloat().coerceIn(0f, 1f),

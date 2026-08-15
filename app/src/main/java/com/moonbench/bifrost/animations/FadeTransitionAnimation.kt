@@ -10,8 +10,16 @@ class FadeTransitionAnimation(
     ledController: LedController,
     initialColor: Int,
     initialRightColor: Int = initialColor,
-    private val secondColor: Int = Color.rgb(0, 255, 255)
+    initialEndColor: Int = DEFAULT_END_COLOR
 ) : LedAnimation(ledController) {
+
+    companion object {
+        // The colour this effect faded to before it was user-selectable. Kept as
+        // the default so presets saved by older versions look unchanged. Written
+        // as a literal rather than Color.rgb() so it stays readable from JVM unit
+        // tests, where android.graphics.Color is a throwing stub.
+        const val DEFAULT_END_COLOR: Int = 0xFF00FFFF.toInt()
+    }
 
     override val type: LedAnimationType = LedAnimationType.FADE_TRANSITION
     override val needsColorSelection: Boolean = true
@@ -20,6 +28,7 @@ class FadeTransitionAnimation(
     private var running = false
     private var targetColor: Int = initialColor
     private var targetRightColor: Int = initialRightColor
+    private var endColor: Int = initialEndColor
     private var targetBrightness: Int = 255
     private var speed: Float = 0.5f
     private var progress = 0f
@@ -31,6 +40,10 @@ class FadeTransitionAnimation(
 
     override fun setTargetRightColor(color: Int) {
         targetRightColor = color
+    }
+
+    override fun setFadeEndColor(color: Int) {
+        endColor = color
     }
 
     override fun setTargetBrightness(brightness: Int) {
@@ -45,8 +58,8 @@ class FadeTransitionAnimation(
         override fun run() {
             if (!running) return
 
-            val currentLeftColor = lerpColor(targetColor, secondColor, progress)
-            val currentRightColor = lerpColor(targetRightColor, secondColor, progress)
+            val currentLeftColor = lerpColor(targetColor, endColor, progress)
+            val currentRightColor = lerpColor(targetRightColor, endColor, progress)
 
             val globalScale = targetBrightness / 255f
 

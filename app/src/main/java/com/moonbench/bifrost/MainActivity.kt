@@ -63,6 +63,7 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.external.ExternalApiGate
 import com.moonbench.bifrost.services.AppProfileManager
@@ -114,6 +115,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var importPresetsButton: MaterialButton
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
+    private lateinit var fadeEndColorButton: MaterialButton
     private lateinit var batteryLowColorButton: MaterialButton
     private lateinit var batteryMidColorButton: MaterialButton
     private lateinit var batteryHighColorButton: MaterialButton
@@ -273,6 +275,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedProfile: PerformanceProfile = PerformanceProfile.HIGH
     private var selectedColor: Int = Color.WHITE
     private var selectedRightColor: Int = Color.WHITE
+    private var selectedFadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
     private var selectedBatteryLowColorOverride: Int? = null
     private var selectedBatteryMidColorOverride: Int? = null
     private var selectedBatteryHighColorOverride: Int? = null
@@ -648,6 +651,7 @@ class MainActivity : AppCompatActivity() {
         importPresetsButton = findViewById(R.id.importPresetsButton)
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
+        fadeEndColorButton = findViewById(R.id.fadeEndColorButton)
         batteryLowColorButton = findViewById(R.id.batteryLowColorButton)
         batteryMidColorButton = findViewById(R.id.batteryMidColorButton)
         batteryHighColorButton = findViewById(R.id.batteryHighColorButton)
@@ -2627,6 +2631,8 @@ class MainActivity : AppCompatActivity() {
         colorButton.setBackgroundColor(selectedColor)
         rightColorButton.setOnClickListener { showColorPicker(isRight = true) }
         rightColorButton.setBackgroundColor(selectedRightColor)
+        fadeEndColorButton.setOnClickListener { showFadeEndColorPicker() }
+        fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
 
         batteryLowColorButton.setOnClickListener {
             showOptionalColorPicker(selectedBatteryLowColorOverride ?: DEFAULT_BATTERY_LOW_COLOR) {
@@ -3212,6 +3218,7 @@ class MainActivity : AppCompatActivity() {
             performanceProfile = selectedProfile,
             color = selectedColor,
             rightColor = selectedRightColor,
+            fadeEndColor = selectedFadeEndColor,
             brightness = selectedBrightness,
             speed = selectedSpeed,
             smoothness = selectedSmoothness,
@@ -3244,6 +3251,7 @@ class MainActivity : AppCompatActivity() {
                     performanceProfile = selectedProfile,
                     color = selectedColor,
                     rightColor = selectedRightColor,
+                    fadeEndColor = selectedFadeEndColor,
                     brightness = selectedBrightness,
                     speed = selectedSpeed,
                     smoothness = selectedSmoothness,
@@ -3267,6 +3275,7 @@ class MainActivity : AppCompatActivity() {
                 selectedProfile = preset.performanceProfile
                 selectedColor = preset.color
                 selectedRightColor = preset.rightColor
+                selectedFadeEndColor = preset.fadeEndColor
                 selectedBrightness = preset.brightness
                 selectedSpeed = preset.speed
                 selectedSmoothness = preset.smoothness
@@ -3292,6 +3301,7 @@ class MainActivity : AppCompatActivity() {
 
                 colorButton.setBackgroundColor(selectedColor)
                 rightColorButton.setBackgroundColor(selectedRightColor)
+                fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
                 brightnessSeekBar.progress = selectedBrightness
                 val progress = (selectedSpeed * 100).toInt()
                 speedSeekBar.progress = progress
@@ -3755,6 +3765,7 @@ class MainActivity : AppCompatActivity() {
         val needsFlashWhenReady = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
         val needsBatteryPalette = selectedAnimationType == LedAnimationType.BATTERY_INDICATOR
         val needsCpuPalette = selectedAnimationType == LedAnimationType.CPU_TEMPERATURE
+        val needsFadeEndColor = selectedAnimationType == LedAnimationType.FADE_TRANSITION
 
         val supportsBrightness = true
 
@@ -3763,6 +3774,11 @@ class MainActivity : AppCompatActivity() {
         if (colorCard.visibility == View.VISIBLE) {
             colorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
             rightColorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
+
+            // The fade target only means anything for FADE_TRANSITION, and the
+            // LEFT/RIGHT buttons become "start colours" once it is shown.
+            val fadeEndColorRow = findViewById<View>(R.id.fadeEndColorRow)
+            fadeEndColorRow?.visibility = if (needsFadeEndColor) View.VISIBLE else View.GONE
 
             val colorCardTitle = findViewById<TextView>(R.id.colorCardTitle)
             if (needsColor) {
@@ -3834,6 +3850,19 @@ class MainActivity : AppCompatActivity() {
                 selectedColor = color
                 colorButton.setBackgroundColor(selectedColor)
             }
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun showFadeEndColorPicker() {
+        colorPickerDialog.show(
+            activity = this,
+            initialColor = selectedFadeEndColor
+        ) { color ->
+            selectedFadeEndColor = color
+            fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
             if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
                 sendLiveUpdateToLedService()
             }
@@ -3969,6 +3998,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("performanceProfile", selectedProfile.name)
             putExtra("animationColor", selectedColor)
             putExtra("animationRightColor", selectedRightColor)
+            putExtra(LEDService.EXTRA_FADE_END_COLOR, selectedFadeEndColor)
             putExtra("brightness", selectedBrightness)
             putExtra("speed", selectedSpeed)
             putExtra("smoothness", selectedSmoothness)
@@ -4025,6 +4055,7 @@ class MainActivity : AppCompatActivity() {
             action = LEDService.ACTION_UPDATE_PARAMS
             putExtra("animationColor", selectedColor)
             putExtra("animationRightColor", selectedRightColor)
+            putExtra(LEDService.EXTRA_FADE_END_COLOR, selectedFadeEndColor)
             putExtra("brightness", selectedBrightness)
             putExtra("speed", selectedSpeed)
             putExtra("smoothness", selectedSmoothness)

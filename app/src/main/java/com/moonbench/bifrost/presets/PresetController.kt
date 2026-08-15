@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.ui.DeletePresetDialog
@@ -271,6 +272,7 @@ class PresetController(
             current.performanceProfile != selectedPreset.performanceProfile ||
             current.color != selectedPreset.color ||
             current.rightColor != selectedPreset.rightColor ||
+            current.fadeEndColor != selectedPreset.fadeEndColor ||
             current.brightness != selectedPreset.brightness ||
             current.speed != selectedPreset.speed ||
             current.smoothness != selectedPreset.smoothness ||
@@ -377,6 +379,7 @@ class PresetController(
                     performanceProfile = profile,
                     color = color,
                     rightColor = obj.optInt("rightColor", color),
+                    fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
                     brightness = obj.optInt("brightness", 255),
                     speed = obj.optDouble("speed", 0.5).toFloat(),
                     smoothness = obj.optDouble("smoothness", 0.5).toFloat(),
@@ -417,6 +420,7 @@ class PresetController(
             obj.put("performanceProfile", preset.performanceProfile.name)
             obj.put("color", preset.color)
             obj.put("rightColor", preset.rightColor)
+            obj.put("fadeEndColor", preset.fadeEndColor)
             obj.put("brightness", preset.brightness)
             obj.put("speed", preset.speed.toDouble())
             obj.put("smoothness", preset.smoothness.toDouble())

@@ -11,6 +11,7 @@ import android.os.Process
 import android.util.Log
 import com.moonbench.bifrost.LedPreset
 import com.moonbench.bifrost.PresetIcon
+import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import org.json.JSONArray
@@ -343,6 +344,7 @@ class AppProfileManager(private val prefs: SharedPreferences) {
                 performanceProfile = profile,
                 color = color,
                 rightColor = obj.optInt("rightColor", color),
+                fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
                 brightness = obj.optInt("brightness", 255).coerceIn(0, 255),
                 speed = obj.optDouble("speed", 0.5).toFloat().coerceIn(0f, 1f),
                 smoothness = obj.optDouble("smoothness", 0.5).toFloat().coerceIn(0f, 1f),

@@ -144,6 +144,7 @@ class LEDService : Service() {
         private const val EXTRA_CPU_COOL_COLOR_OVERRIDE = "cpuCoolColorOverride"
         private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
         private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
+        const val EXTRA_FADE_END_COLOR = "fadeEndColor"
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
         private const val PROJECTION_PROMPT_CHANNEL_ID = "bifrost_projection_prompt_channel_v2"
         private const val PROJECTION_PROMPT_NOTIFICATION_ID = 4244
@@ -177,6 +178,7 @@ class LEDService : Service() {
     private var currentSaturationBoost: Float = 0f
     private var currentUseCustomSampling: Boolean = false
     private var currentUseSingleColor: Boolean = false
+    private var currentFadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
     private var currentBreatheWhenCharging: Boolean = false
     private var currentIndicateChargingSpeed: Boolean = false
     private var currentFlashWhenReady: Boolean = false
@@ -487,6 +489,10 @@ class LEDService : Service() {
         currentSaturationBoost = intent.getFloatExtra("saturationBoost", 0f).coerceIn(0f, 1f)
         currentUseCustomSampling = intent.getBooleanExtra("useCustomSampling", false)
         currentUseSingleColor = intent.getBooleanExtra("useSingleColor", false)
+        currentFadeEndColor = intent.getIntExtra(
+            EXTRA_FADE_END_COLOR,
+            FadeTransitionAnimation.DEFAULT_END_COLOR
+        )
         currentBreatheWhenCharging = intent.getBooleanExtra("breatheWhenCharging", false)
         currentIndicateChargingSpeed = intent.getBooleanExtra("indicateChargingSpeed", false)
         currentFlashWhenReady = intent.getBooleanExtra("flashWhenReady", false)
@@ -558,6 +564,16 @@ class LEDService : Service() {
                     restartAnimationForCurrentState(force = true)
                     return
                 }
+            }
+        }
+
+        if (intent.hasExtra(EXTRA_FADE_END_COLOR)) {
+            val newFadeEnd = intent.getIntExtra(EXTRA_FADE_END_COLOR, currentFadeEndColor)
+            if (newFadeEnd != currentFadeEndColor) {
+                currentFadeEndColor = newFadeEnd
+                // The fade reads its target every frame, so no restart is needed:
+                // the running animation just walks towards the new colour.
+                animation?.setFadeEndColor(currentFadeEndColor)
             }
         }
 
@@ -1000,6 +1016,7 @@ class LEDService : Service() {
         currentProfile = preset.performanceProfile
         currentColor = preset.color
         currentRightColor = preset.rightColor
+        currentFadeEndColor = preset.fadeEndColor
         currentBrightness = preset.brightness
         currentSpeed = preset.speed
         currentSmoothness = preset.smoothness
@@ -1746,7 +1763,12 @@ class LEDService : Service() {
             LedAnimationType.PULSE -> PulseAnimation(ledController, color, rightColor)
             LedAnimationType.STROBE -> StrobeAnimation(ledController, color, rightColor)
             LedAnimationType.SPARKLE -> SparkleAnimation(ledController, color, rightColor)
-            LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(ledController, color, rightColor)
+            LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(
+                ledController,
+                color,
+                rightColor,
+                currentFadeEndColor
+            )
             LedAnimationType.RAVE -> RaveAnimation(ledController)
             LedAnimationType.CHASE -> ChaseAnimation(ledController, color, rightColor)
             LedAnimationType.PIPBOY -> PipBoyAnimation(ledController, color, rightColor)

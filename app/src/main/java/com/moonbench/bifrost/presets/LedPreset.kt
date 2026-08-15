@@ -1,5 +1,6 @@
 package com.moonbench.bifrost
 
+import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 
@@ -9,6 +10,8 @@ data class LedPreset(
     val performanceProfile: PerformanceProfile,
     val color: Int,
     val rightColor: Int = color,
+    // FADE_TRANSITION only: the colour both sticks fade towards.
+    val fadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR,
     val brightness: Int,
     val speed: Float,
     val smoothness: Float,

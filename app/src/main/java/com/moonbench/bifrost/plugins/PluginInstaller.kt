@@ -103,6 +103,7 @@ object PluginInstaller {
         put("performanceProfile", p.performanceProfile.name)
         put("color", p.color)
         put("rightColor", p.rightColor)
+        put("fadeEndColor", p.fadeEndColor)
         put("brightness", p.brightness)
         put("speed", p.speed.toDouble())
         put("smoothness", p.smoothness.toDouble())

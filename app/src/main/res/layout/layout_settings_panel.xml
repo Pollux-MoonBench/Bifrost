@@ -811,6 +811,37 @@
                             android:layout_marginStart="4dp" />
                     </LinearLayout>
 
+                    <LinearLayout
+                        android:id="@+id/fadeEndColorRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone"
+                        android:layout_marginBottom="20dp">
+
+                        <TextView
+                            android:text="FADE TARGET"
+                            android:textColor="@color/bifrost_text_secondary"
+                            android:textSize="10sp"
+                            android:letterSpacing="0.1"
+                            android:layout_marginBottom="8dp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/fadeEndColorButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:text="FADE TO"
+                            android:backgroundTint="@color/bifrost_surface"
+                            android:textColor="@color/bifrost_text"
+                            android:textSize="12sp"
+                            android:letterSpacing="0.05"
+                            app:cornerRadius="12dp"
+                            app:strokeWidth="1dp"
+                            app:strokeColor="@color/bifrost_accent" />
+                    </LinearLayout>
+
                     <TextView
                         android:text="BRIGHTNESS"
                         android:textColor="@color/bifrost_text_secondary"
