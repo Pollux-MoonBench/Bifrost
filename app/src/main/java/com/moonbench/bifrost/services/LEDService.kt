@@ -459,11 +459,16 @@ class LEDService : Service() {
 
         val notification = createNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
+            // Claiming mediaProjection without holding a projection token is
+            // rejected from Android 14 on, and the accessibility capture path
+            // never holds one. Declare what the service actually is right now.
+            val hasProjection = synchronized(mediaProjectionLock) { mediaProjection != null }
+            val type = if (hasProjection) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            )
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            }
+            startForeground(NOTIFICATION_ID, notification, type)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
