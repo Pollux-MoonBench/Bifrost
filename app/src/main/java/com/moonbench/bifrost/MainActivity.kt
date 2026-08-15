@@ -280,6 +280,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedRightColor: Int = Color.WHITE
     private var selectedFadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
     private var selectedFadeEndRightColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
+    private var isSuppressingAmbilightCaptureCallback = false
     private var selectedBatteryLowColorOverride: Int? = null
     private var selectedBatteryMidColorOverride: Int? = null
     private var selectedBatteryHighColorOverride: Int? = null
@@ -2874,23 +2875,54 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupAmbilightCaptureSwitch() {
-        ambilightUseMediaProjectionSwitch.isChecked = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+        ambilightUseMediaProjectionSwitch.isChecked = prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, LEDService.DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
         ambilightUseMediaProjectionSwitch.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, isChecked).apply()
-            if (!LEDService.isRunning || serviceController.isServiceTransitioning) return@setOnCheckedChangeListener
-            if (isChecked) {
-                if (mediaProjectionResultCode != null && mediaProjectionData != null) {
-                    // Already have a token — restart with it (requiresProjectionToken now returns true so it's included)
-                    serviceController.restartDebounced { createLedServiceIntent() }
-                } else {
-                    // No token yet — request permission. screenCaptureLauncher will call
-                    // startDebounced { createLedServiceIntent() } which now includes the token.
-                    handleMediaProjectionRequirement()
-                }
-            } else {
-                // Switching back to accessibility mode — restart without MediaProjection
-                serviceController.restartDebounced { createLedServiceIntent() }
+            if (isSuppressingAmbilightCaptureCallback) return@setOnCheckedChangeListener
+
+            if (!isChecked) {
+                confirmAccessibilityCapture()
+                return@setOnCheckedChangeListener
             }
+
+            applyAmbilightCaptureChoice(useMediaProjection = true)
+        }
+    }
+
+    private fun confirmAccessibilityCapture() {
+        BifrostAlertDialog().show(
+            activity = this,
+            title = getString(R.string.ambilight_accessibility_title),
+            subtitle = getString(R.string.ambilight_accessibility_subtitle),
+            body = getString(R.string.ambilight_accessibility_body),
+            positiveLabelResId = R.string.ambilight_accessibility_confirm,
+            negativeLabelResId = R.string.action_cancel,
+            cancelable = true,
+            onConfirm = { applyAmbilightCaptureChoice(useMediaProjection = false) },
+            onCancel = { restoreAmbilightCaptureSwitch(checked = true) }
+        )
+    }
+
+    private fun restoreAmbilightCaptureSwitch(checked: Boolean) {
+        isSuppressingAmbilightCaptureCallback = true
+        ambilightUseMediaProjectionSwitch.isChecked = checked
+        isSuppressingAmbilightCaptureCallback = false
+    }
+
+    private fun applyAmbilightCaptureChoice(useMediaProjection: Boolean) {
+        prefs.edit().putBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, useMediaProjection).apply()
+        restoreAmbilightCaptureSwitch(checked = useMediaProjection)
+
+        if (!LEDService.isRunning || serviceController.isServiceTransitioning) return
+
+        if (!useMediaProjection) {
+            serviceController.restartDebounced { createLedServiceIntent() }
+            return
+        }
+
+        if (mediaProjectionResultCode != null && mediaProjectionData != null) {
+            serviceController.restartDebounced { createLedServiceIntent() }
+        } else {
+            handleMediaProjectionRequirement()
         }
     }
 
@@ -4003,14 +4035,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun requiresProjectionToken(type: LedAnimationType): Boolean {
         if (type == LedAnimationType.AMBIENT) {
-            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, LEDService.DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
         }
         return type.needsMediaProjection
     }
 
     private fun needsAccessibilityPermission(type: LedAnimationType): Boolean {
         if (type == LedAnimationType.AMBIENT) {
-            return !prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+            return !prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, LEDService.DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
         }
         return type == LedAnimationType.AMBIAURORA
     }

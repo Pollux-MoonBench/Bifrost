@@ -150,6 +150,7 @@ class LEDService : Service() {
         private const val PROJECTION_PROMPT_CHANNEL_ID = "bifrost_projection_prompt_channel_v2"
         private const val PROJECTION_PROMPT_NOTIFICATION_ID = 4244
         const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = "ambilight_use_media_projection"
+        const val DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION = true
         var isRunning = false
     }
 
@@ -1702,7 +1703,7 @@ class LEDService : Service() {
 
     private fun needsMediaProjection(type: LedAnimationType): Boolean {
         if (type == LedAnimationType.AMBIENT) {
-            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+            return prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
         }
         return type == LedAnimationType.AUDIO_REACTIVE ||
                 type == LedAnimationType.AMBIAURORA
@@ -1720,7 +1721,7 @@ class LEDService : Service() {
                 // Mirror mode forces the accessibility capture path: MediaProjection
                 // can only mirror the default display, but mirror mode targets
                 // whichever (possibly secondary) display shows the Pip-Boy.
-                val useMP = !mirrorMode && prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+                val useMP = !mirrorMode && prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
                 val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
                 AmbientAnimation(
                     ledController,

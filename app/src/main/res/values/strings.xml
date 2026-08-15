@@ -60,6 +60,15 @@
     <string name="startup_done_title">You are ready</string>
     <string name="startup_done_body">You can now start Bifrost and keep it running in background until you press Stop or Kill.</string>
     <string name="startup_done_action">Continue</string>
+    <string name="plugin_update_prompt_title">CHECK FOR PLUGIN UPDATES?</string>
+    <string name="plugin_update_prompt_subtitle">One small network request at launch</string>
+    <string name="plugin_update_prompt_body">Bifrost can check the plugin store for updates each time it starts.\n\nThis is off by default. You can change it anytime in the Plugin Store.</string>
+    <string name="plugin_update_prompt_confirm">Enable</string>
+    <string name="plugin_update_prompt_dismiss">Not now</string>
+    <string name="ambilight_accessibility_title">SWITCH TO ACCESSIBILITY CAPTURE?</string>
+    <string name="ambilight_accessibility_subtitle">Ambient and AmbiAurora will look less fluid</string>
+    <string name="ambilight_accessibility_body">Accessibility capture never asks for permission again, but it samples the screen more slowly, so Ambient and AmbiAurora animations lose smoothness.\n\nScreen capture stays fluid and is the default. It asks for permission once per launch.</string>
+    <string name="ambilight_accessibility_confirm">Use accessibility</string>
     <string name="accessibility_service_description">Allows Bifrost to capture display frames for LED effects.</string>
     <string name="live_wallpaper_description">Video live wallpaper.</string>
 

@@ -65,7 +65,7 @@ class BifrostTileService : TileService() {
         if (type.needsMediaProjection) return true
 
         return type == LedAnimationType.AMBIENT &&
-            prefs.getBoolean(LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
+            prefs.getBoolean(LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION, LEDService.DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
     }
 
     private fun openApp(startOnArrival: Boolean = true) {

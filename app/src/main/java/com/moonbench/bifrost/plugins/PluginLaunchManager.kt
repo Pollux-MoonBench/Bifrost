@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import com.moonbench.bifrost.R
+import com.moonbench.bifrost.ui.BifrostAlertDialog
 
 /**
  * Wires the plugin store into app launch:
@@ -24,7 +26,7 @@ object PluginLaunchManager {
      * reappears (even if dismissed), and leaves the setting OFF unless the user
      * taps Enable. Safe to call every launch — no-ops after the first.
      */
-    fun maybePromptForUpdateChecks(activity: Activity) {
+    fun maybePromptForUpdateChecks(activity: AppCompatActivity) {
         val prefs = PluginPrefs.prefs(activity)
         if (PluginPrefs.updatePromptShown(prefs)) return
         // This runs from a posted MainActivity init callback; the AYN launcher's
@@ -35,21 +37,17 @@ object PluginLaunchManager {
         if (activity.isFinishing || activity.isDestroyed) return
         PluginPrefs.markUpdatePromptShown(prefs)
 
-        AlertDialog.Builder(activity)
-            .setTitle("Check for plugin updates?")
-            .setMessage(
-                "Bifrost can check the plugin store for updates each time it " +
-                    "starts. That's a small network request at launch. It's OFF " +
-                    "by default — you can change it anytime in the Plugin Store."
-            )
-            .setPositiveButton("Enable") { _, _ ->
-                PluginPrefs.setCheckUpdatesAtLaunch(prefs, true)
-            }
-            .setNegativeButton("Not now") { _, _ ->
-                PluginPrefs.setCheckUpdatesAtLaunch(prefs, false)
-            }
-            .setCancelable(true)
-            .show()
+        BifrostAlertDialog().show(
+            activity = activity,
+            title = activity.getString(R.string.plugin_update_prompt_title),
+            subtitle = activity.getString(R.string.plugin_update_prompt_subtitle),
+            body = activity.getString(R.string.plugin_update_prompt_body),
+            positiveLabelResId = R.string.plugin_update_prompt_confirm,
+            negativeLabelResId = R.string.plugin_update_prompt_dismiss,
+            cancelable = true,
+            onConfirm = { PluginPrefs.setCheckUpdatesAtLaunch(prefs, true) },
+            onCancel = { PluginPrefs.setCheckUpdatesAtLaunch(prefs, false) }
+        )
     }
 
     /**
