@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
+import com.moonbench.bifrost.animations.FadeTransitionAnimation
 import com.moonbench.bifrost.animations.LedAnimationType
 import com.moonbench.bifrost.tools.PerformanceProfile
 import org.json.JSONArray
@@ -50,6 +51,7 @@ object HeimdallStartupManager {
             putExtra("performanceProfile", preset.performanceProfile.name)
             putExtra("animationColor", preset.color)
             putExtra("animationRightColor", preset.rightColor)
+            putExtra(LEDService.EXTRA_FADE_END_COLOR, preset.fadeEndColor)
             putExtra("brightness", preset.brightness)
             putExtra("speed", preset.speed)
             putExtra("smoothness", preset.smoothness)
@@ -133,6 +135,7 @@ object HeimdallStartupManager {
             performanceProfile = performanceProfile,
             color = color,
             rightColor = obj.optInt("rightColor", color),
+            fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
             brightness = obj.optInt("brightness", 255),
             speed = obj.optDouble("speed", 0.5).toFloat(),
             smoothness = obj.optDouble("smoothness", 0.5).toFloat(),
@@ -151,6 +154,7 @@ object HeimdallStartupManager {
         val performanceProfile: PerformanceProfile,
         val color: Int,
         val rightColor: Int,
+        val fadeEndColor: Int,
         val brightness: Int,
         val speed: Float,
         val smoothness: Float,
