@@ -469,6 +469,7 @@ class LEDService : Service() {
         }
 
         isRunning = true
+        BifrostTileService.refreshFrom(this)
 
         val animationTypeName = intent.getStringExtra("animationType")
         val animationType = animationTypeName?.let {
@@ -1093,6 +1094,7 @@ class LEDService : Service() {
             handler.removeCallbacks(activityCheckRunnable)
             clearPendingCallbacks()
             isRunning = false
+            BifrostTileService.refreshFrom(this)
             allowBackgroundRun = false
             isTransitioning.set(false)
             activeAnimationType = null
