@@ -67,7 +67,8 @@ class ScheduleActivity : AppCompatActivity() {
         root.addView(TextView(this).apply {
             text = "Play a preset, or switch the LEDs off, between set hours — " +
                 "optionally only during part of the year. A rule limited to dates " +
-                "wins over an all-year rule; otherwise the first matching rule wins."
+                "wins over an all-year rule; otherwise the first matching rule wins. " +
+                "While the schedule is on, any hour no rule covers is dark."
             textSize = 13f
             alpha = 0.7f
             setPadding(0, 0, 0, dp(12))
