@@ -15,10 +15,6 @@ class FadeTransitionAnimation(
 ) : LedAnimation(ledController) {
 
     companion object {
-        // The colour this effect faded to before it was user-selectable. Kept as
-        // the default so presets saved by older versions look unchanged. Written
-        // as a literal rather than Color.rgb() so it stays readable from JVM unit
-        // tests, where android.graphics.Color is a throwing stub.
         const val DEFAULT_END_COLOR: Int = 0xFF00FFFF.toInt()
     }
 

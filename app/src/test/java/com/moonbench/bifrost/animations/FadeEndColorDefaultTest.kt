@@ -4,12 +4,6 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * The fade target became user-selectable in 1.3.0. Presets written before that
- * carry no "fadeEndColor" key, and every parser in the app falls back to the
- * colour the effect used to hardcode. If that default ever drifts, those presets
- * silently change appearance with no build error — hence this pin.
- */
 class FadeEndColorDefaultTest {
 
     @Test fun defaultEndColorIsTheHistoricalCyan() {
@@ -17,7 +11,6 @@ class FadeEndColorDefaultTest {
     }
 
     @Test fun presetJsonWithoutTheKeyFallsBackToTheDefault() {
-        // Shape written by 1.2.x and earlier: colours present, fade target absent.
         val legacy = JSONObject("""{"name":"Old","color":-1,"rightColor":-1}""")
 
         val parsed = legacy.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR)
@@ -26,9 +19,6 @@ class FadeEndColorDefaultTest {
     }
 
     @Test fun rightTargetFallsBackToTheLeftOneWhenAbsent() {
-        // Presets written between the single-target and per-stick versions carry
-        // "fadeEndColor" alone. Falling back to it — not to the historical cyan —
-        // keeps those presets looking exactly as they did.
         val singleTarget = JSONObject("""{"name":"Mid","fadeEndColor":-65536}""")
 
         val left = singleTarget.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR)

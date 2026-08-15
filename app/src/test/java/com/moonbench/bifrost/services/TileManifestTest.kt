@@ -4,15 +4,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * The Quick Settings tile is reached only through the manifest: nothing in the
- * app code calls it, so a wrong or missing declaration produces no build error
- * and no crash — the tile simply never shows up in the system panel, which is
- * indistinguishable from "the feature was never shipped".
- *
- * Android requires all three parts below. Dropping any one of them silently
- * hides the tile.
- */
 class TileManifestTest {
 
     private val manifest: String by lazy { locate("src/main/AndroidManifest.xml").readText() }
@@ -26,7 +17,6 @@ class TileManifestTest {
     }
 
     @Test fun tileIsExported() {
-        // The system UI binds it from outside the app; unexported means invisible.
         assertTrue("the tile service must be exported", tileBlock.contains("android:exported=\"true\""))
     }
 
@@ -49,7 +39,6 @@ class TileManifestTest {
         assertTrue("the tile needs a label to be found in the picker", tileBlock.contains("android:label="))
     }
 
-    /** Walk up from the test working dir to find a project-relative file. */
     private fun locate(rel: String): File {
         var dir: File? = File(System.getProperty("user.dir") ?: ".")
         repeat(5) {

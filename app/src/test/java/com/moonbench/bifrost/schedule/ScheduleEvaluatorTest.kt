@@ -7,12 +7,6 @@ import org.junit.Test
 import java.time.LocalDateTime
 import java.time.MonthDay
 
-/**
- * The schedule decides what the LEDs do while nobody is watching, so every
- * awkward case it can meet on a device is pinned here instead: windows that
- * wrap midnight, windows that wrap the new year, and a holiday rule that has to
- * beat the everyday rule it overlaps.
- */
 class ScheduleEvaluatorTest {
 
     private fun rule(
@@ -35,7 +29,6 @@ class ScheduleEvaluatorTest {
     private fun at(month: Int, day: Int, hour: Int, minute: Int = 0) =
         LocalDateTime.of(2026, month, day, hour, minute)
 
-    // ---- time windows ----------------------------------------------------
 
     @Test fun plainWindowCoversItsOwnHours() {
         val night = rule("night", 20, 23)
@@ -50,7 +43,6 @@ class ScheduleEvaluatorTest {
     }
 
     @Test fun windowWrappingMidnightCoversBothSidesOfIt() {
-        // The case the issue actually asks for: blue from 20:00 to 07:00.
         val night = rule("night", 20, 7)
         assertEquals(night, ScheduleEvaluator.ruleInForce(listOf(night), at(6, 15, 23)))
         assertEquals(night, ScheduleEvaluator.ruleInForce(listOf(night), at(6, 15, 2)))
@@ -62,7 +54,6 @@ class ScheduleEvaluatorTest {
         assertNull(ScheduleEvaluator.ruleInForce(listOf(night), at(6, 15, 23)))
     }
 
-    // ---- date windows ----------------------------------------------------
 
     @Test fun datedRuleAppliesOnlyInsideItsSeason() {
         val christmas = rule(
@@ -81,8 +72,6 @@ class ScheduleEvaluatorTest {
     }
 
     @Test fun nightRuleStartedBeforeMidnightKeepsItsStartingDaysSeason() {
-        // 01:00 on January 1: the rule in force began at 20:00 on December 31,
-        // so a December-only window must still hold.
         val december = rule(
             "december", 20, 7,
             window = DateWindow(MonthDay.of(12, 1), MonthDay.of(12, 31))
@@ -90,7 +79,6 @@ class ScheduleEvaluatorTest {
         assertEquals(december, ScheduleEvaluator.ruleInForce(listOf(december), at(1, 1, 1)))
     }
 
-    // ---- precedence ------------------------------------------------------
 
     @Test fun datedRuleOutranksTheEverydayRuleItOverlaps() {
         val everyNight = rule("blue-night", 20, 7)
@@ -115,7 +103,6 @@ class ScheduleEvaluatorTest {
         assertEquals(ScheduleAction.TurnOff, inForce?.action)
     }
 
-    // ---- boundaries ------------------------------------------------------
 
     @Test fun nextBoundaryIsTheNearestEdgeOfAnyRule() {
         val night = rule("night", 20, 7)
@@ -133,7 +120,6 @@ class ScheduleEvaluatorTest {
     }
 
     @Test fun midnightIsABoundaryWhenASeasonalRuleExists() {
-        // Nothing else changes on November 30 at 23:00, but the season does.
         val christmas = rule(
             "christmas", 10, 10,
             window = DateWindow(MonthDay.of(12, 1), MonthDay.of(12, 31))
@@ -154,7 +140,6 @@ class ScheduleEvaluatorTest {
         )
     }
 
-    // ---- persistence -----------------------------------------------------
 
     @Test fun rulesSurviveARoundTripThroughJson() {
         val original = rule(

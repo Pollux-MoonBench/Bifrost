@@ -8,18 +8,6 @@ import com.moonbench.bifrost.receivers.ScheduleReceiver
 import java.time.LocalDateTime
 import java.time.ZoneId
 
-/**
- * Arms a single alarm for the next rule edge, re-armed each time it fires.
- *
- * One alarm rather than one per rule: the schedule only ever needs to know its
- * next boundary, and a single pending intent can't leak duplicates when rules
- * are edited.
- *
- * The alarm is inexact ([AlarmManager.setAndAllowWhileIdle]) on purpose. Exact
- * alarms need SCHEDULE_EXACT_ALARM, which Google restricts to alarm-clock-like
- * apps and users can revoke; a stick light arriving a minute or two late is not
- * worth a permission the app can lose.
- */
 object ScheduleAlarms {
 
     private const val REQUEST_CODE = 8421

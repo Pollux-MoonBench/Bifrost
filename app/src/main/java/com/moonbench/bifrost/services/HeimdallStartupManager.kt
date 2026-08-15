@@ -39,11 +39,6 @@ object HeimdallStartupManager {
         return buildStartupDecision(context, prefs).serviceIntent
     }
 
-    /**
-     * Same intent as an auto-start, but for a preset picked by name — used by the
-     * schedule, which names the preset a rule should play. Returns null when no
-     * preset by that name is stored (deleted since the rule was written).
-     */
     fun buildServiceIntentForPreset(
         context: Context,
         prefs: SharedPreferences,

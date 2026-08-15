@@ -4,8 +4,6 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <!-- The accessibility capture path runs the LED service with no projection
-         token, so it cannot claim the mediaProjection type. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -80,9 +78,7 @@
                 android:value="Persistent LED control with accessibility-based screen capture" />
         </service>
 
-        <!-- Screen capture without a projection prompt on every launch. Listed in
              the system's accessibility settings only if declared here: without
-             this block the app asks for a permission the user cannot find. -->
         <service
             android:name=".services.BifrostAccessibilityService"
             android:exported="true"
@@ -131,8 +127,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- The schedule's own alarm, plus the clock changes that move every
-             boundary and drop pending alarms. -->
         <receiver
             android:name=".receivers.ScheduleReceiver"
             android:enabled="true"

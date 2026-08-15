@@ -595,15 +595,8 @@ class MainActivity : AppCompatActivity() {
         handleTileStartIntent(intent)
     }
 
-    /**
-     * The Quick Settings tile starts the service itself when it can. When the
-     * chosen animation needs a projection token it can't — consent needs a
-     * visible Activity — so it opens the app with this flag, and the app
-     * finishes the job by flipping the same switch the user would have pressed.
-     */
     private fun handleTileStartIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_START_FROM_TILE, false) != true) return
-        // Consume the flag so a configuration change doesn't restart the service.
         intent.removeExtra(EXTRA_START_FROM_TILE)
 
         if (LEDService.isRunning) return
@@ -3808,8 +3801,6 @@ class MainActivity : AppCompatActivity() {
             colorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
             rightColorButton.visibility = if (needsColor) View.VISIBLE else View.GONE
 
-            // The fade target only means anything for FADE_TRANSITION, and the
-            // LEFT/RIGHT buttons become "start colours" once it is shown.
             val fadeEndColorRow = findViewById<View>(R.id.fadeEndColorRow)
             fadeEndColorRow?.visibility = if (needsFadeEndColor) View.VISIBLE else View.GONE
 

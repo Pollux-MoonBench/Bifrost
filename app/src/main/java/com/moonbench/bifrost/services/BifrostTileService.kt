@@ -11,27 +11,9 @@ import androidx.core.content.ContextCompat
 import com.moonbench.bifrost.MainActivity
 import com.moonbench.bifrost.animations.LedAnimationType
 
-/**
- * Quick Settings tile: turn the LEDs on or off without opening the app.
- *
- * Asked for so the effect can be brought back in two swipes after the service
- * dies while a game is in the foreground (issue #12) — the tile is a faster way
- * back, not a fix for whatever killed the service.
- *
- * Starting from the tile reuses the auto-start path, so the tile plays exactly
- * what a reboot would: last used preset, or the app-profile default. Animations
- * that capture the screen can't start from here — MediaProjection consent needs
- * a visible Activity — so for those the tile opens the app instead of failing
- * silently.
- */
 class BifrostTileService : TileService() {
 
     companion object {
-        /**
-         * Ask the system to re-poll the tile. Called by LEDService when it starts
-         * or stops, so the tile doesn't sit on a stale state after a change made
-         * from the app, the boot receiver or the external API.
-         */
         fun refreshFrom(context: Context) {
             runCatching {
                 requestListeningState(
@@ -59,14 +41,10 @@ class BifrostTileService : TileService() {
         val serviceIntent = HeimdallStartupManager.buildStartupDecision(this, prefs).serviceIntent
 
         if (serviceIntent == null) {
-            // Nothing to play yet — open the app so a preset can be built.
             openApp(startOnArrival = false)
             return
         }
 
-        // The preset captures the screen through MediaProjection, whose consent
-        // dialog needs a visible Activity: hand over to the app, which starts
-        // the service once the prompt is answered.
         if (needsForegroundConsent(serviceIntent, prefs)) {
             openApp()
             return
@@ -86,8 +64,6 @@ class BifrostTileService : TileService() {
 
         if (type.needsMediaProjection) return true
 
-        // AMBIENT can run either through the accessibility capture or through
-        // MediaProjection, depending on a setting — only the latter needs consent.
         return type == LedAnimationType.AMBIENT &&
             prefs.getBoolean(LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
     }
@@ -95,8 +71,6 @@ class BifrostTileService : TileService() {
     private fun openApp(startOnArrival: Boolean = true) {
         val launch = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            // Opening the app is a means, not the goal: the tile was tapped to
-            // call Heimdall, so the app starts it as soon as it can prompt.
             if (startOnArrival) putExtra(MainActivity.EXTRA_START_FROM_TILE, true)
         }
 
@@ -114,11 +88,6 @@ class BifrostTileService : TileService() {
         }
     }
 
-    /**
-     * [forcedRunning] covers the click path: the service flips its own flag a
-     * moment later, so the tile would otherwise redraw with the old state and
-     * only correct itself on the next poll.
-     */
     private fun renderState(forcedRunning: Boolean? = null) {
         val tile = qsTile ?: return
         val running = forcedRunning ?: LEDService.isRunning

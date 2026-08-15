@@ -4,19 +4,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/**
- * Regression guard for the manifest wipe shipped in 1.3.0.
- *
- * A collaborator branch built on an older manifest was merged, and the merge
- * silently dropped three declarations. Nothing failed to compile, no test
- * failed, and the app started fine — but the accessibility service was absent
- * from the system's accessibility list, so the setup flow asked the user to
- * enable something that wasn't there, and the live wallpaper had no service to
- * bind to.
- *
- * These declarations are reachable only from the manifest, so only the manifest
- * can be checked.
- */
 class ManifestServicesTest {
 
     private val manifest: String by lazy { locate("src/main/AndroidManifest.xml").readText() }
@@ -56,9 +43,6 @@ class ManifestServicesTest {
     }
 
     @Test fun ledServiceCanRunWithoutAProjection() {
-        // The accessibility capture path holds no projection token. From Android
-        // 14 on, a foreground service claiming only mediaProjection while holding
-        // no token is refused, so specialUse must stay declared alongside it.
         assertTrue(
             "LEDService must declare specialUse as well as mediaProjection",
             manifest.contains("mediaProjection|specialUse")
@@ -73,7 +57,6 @@ class ManifestServicesTest {
         )
     }
 
-    /** Walk up from the test working dir to find a project-relative file. */
     private fun locate(rel: String): File {
         var dir: File? = File(System.getProperty("user.dir") ?: ".")
         repeat(5) {

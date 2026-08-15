@@ -3,19 +3,11 @@ package com.moonbench.bifrost.schedule
 import android.content.SharedPreferences
 import org.json.JSONArray
 
-/**
- * Reads and writes the schedule. Kept in the same SharedPreferences file as the
- * presets so a backup that captures one captures the other.
- */
 object ScheduleStore {
 
     private const val PREF_KEY_RULES = "schedule_rules_json"
     private const val PREF_KEY_ENABLED = "schedule_enabled"
 
-    /**
-     * Master switch. Separate from per-rule flags so the whole schedule can be
-     * suspended for an evening without losing which rules were on.
-     */
     fun isEnabled(prefs: SharedPreferences): Boolean =
         prefs.getBoolean(PREF_KEY_ENABLED, false)
 

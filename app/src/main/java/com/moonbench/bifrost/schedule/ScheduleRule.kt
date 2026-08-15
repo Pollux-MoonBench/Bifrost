@@ -5,13 +5,6 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.MonthDay
 
-/**
- * What a rule does while it is in force.
- *
- * Turning the LEDs off is an action rather than the absence of a rule: "no
- * lights between 7am and 8pm" has to beat the preset a broader rule would
- * otherwise play, and only an explicit action can express that.
- */
 sealed class ScheduleAction {
     data class PlayPreset(val presetName: String) : ScheduleAction()
     object TurnOff : ScheduleAction()
@@ -43,18 +36,10 @@ sealed class ScheduleAction {
     }
 }
 
-/**
- * A calendar window, given as month/day pairs so it repeats every year without
- * being re-entered. Both ends are inclusive. A window may wrap the new year
- * (December 20 → January 5), which is why containment is not a plain range
- * comparison.
- */
 data class DateWindow(val start: MonthDay, val end: MonthDay) {
 
     fun contains(date: LocalDate): Boolean {
         val today = MonthDay.of(date.monthValue, date.dayOfMonth)
-        // February 29 in a non-leap year: MonthDay handles the comparison, the
-        // date simply never occurs, so no special case is needed here.
         return if (start <= end) {
             today >= start && today <= end
         } else {
@@ -83,15 +68,6 @@ data class DateWindow(val start: MonthDay, val end: MonthDay) {
     }
 }
 
-/**
- * One line of the schedule: "between these hours, on these days of the year, do
- * this".
- *
- * [startMinuteOfDay] is inclusive and [endMinuteOfDay] exclusive, so two rules
- * meeting at 20:00 don't both claim that minute. A window whose end is at or
- * before its start wraps midnight (20:00 → 07:00), which is the common case for
- * night lighting and would otherwise need two rules.
- */
 data class ScheduleRule(
     val id: String,
     val label: String,
@@ -103,7 +79,7 @@ data class ScheduleRule(
 ) {
 
     fun coversTime(minuteOfDay: Int): Boolean {
-        if (startMinuteOfDay == endMinuteOfDay) return true // whole day
+        if (startMinuteOfDay == endMinuteOfDay) return true
         return if (startMinuteOfDay < endMinuteOfDay) {
             minuteOfDay >= startMinuteOfDay && minuteOfDay < endMinuteOfDay
         } else {
@@ -114,10 +90,6 @@ data class ScheduleRule(
     fun covers(moment: LocalDateTime): Boolean {
         if (!enabled) return false
         val window = dateWindow
-        // A wrapping night rule that starts before midnight belongs to the day it
-        // started on: at 01:00 on January 1, the rule that began at 20:00 on
-        // December 31 is the one in force, so its window is tested against that
-        // earlier date.
         val effectiveDate = if (
             window != null &&
             startMinuteOfDay > endMinuteOfDay &&

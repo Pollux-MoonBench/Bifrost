@@ -22,14 +22,6 @@ import org.json.JSONArray
 import java.time.MonthDay
 import java.util.UUID
 
-/**
- * The schedule screen: a list of rules, in priority order, plus the editor for
- * one rule.
- *
- * Built programmatically like the plugin store, for the same reason — the main
- * settings layout is already very large, and a screen that owns its own views
- * can change without disturbing it.
- */
 class ScheduleActivity : AppCompatActivity() {
 
     private val prefs by lazy { getSharedPreferences("bifrost_prefs", Context.MODE_PRIVATE) }
@@ -49,7 +41,6 @@ class ScheduleActivity : AppCompatActivity() {
 
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
 
-    // ---- scaffold --------------------------------------------------------
 
     private fun buildRoot(): View {
         val scroll = ScrollView(this)
@@ -79,8 +70,6 @@ class ScheduleActivity : AppCompatActivity() {
             isChecked = ScheduleStore.isEnabled(prefs)
             setOnCheckedChangeListener { _, checked ->
                 ScheduleStore.setEnabled(prefs, checked)
-                // Applying immediately, rather than at the next boundary, so the
-                // switch does something visible right away.
                 ScheduleApplier.apply(this@ScheduleActivity)
             }
         })
@@ -106,7 +95,6 @@ class ScheduleActivity : AppCompatActivity() {
         return scroll
     }
 
-    // ---- rule list -------------------------------------------------------
 
     private fun renderRules() {
         listContainer.removeAllViews()
@@ -156,7 +144,6 @@ class ScheduleActivity : AppCompatActivity() {
                 persist()
             }
         })
-        // Priority is list order, so it has to be changeable from here.
         if (index > 0) {
             controls.addView(Button(this).apply {
                 text = "▲"
@@ -202,7 +189,6 @@ class ScheduleActivity : AppCompatActivity() {
         renderRules()
     }
 
-    // ---- rule editor -----------------------------------------------------
 
     private fun showRuleEditor(index: Int?) {
         val existing = index?.let { rules[it] }
@@ -253,7 +239,6 @@ class ScheduleActivity : AppCompatActivity() {
             alpha = 0.7f
         })
 
-        // Action: every saved preset, plus switching off.
         val actionLabels = presetNames + OFF_LABEL
         val actionSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(
@@ -336,10 +321,6 @@ class ScheduleActivity : AppCompatActivity() {
         ).show()
     }
 
-    /**
-     * Month and day only: a season repeats every year, so asking for a year
-     * would invite the user to write one that expires.
-     */
     private fun pickMonthDay(title: String, onPicked: (MonthDay) -> Unit) {
         val monthPicker = NumberPicker(this).apply {
             minValue = 1
@@ -368,8 +349,6 @@ class ScheduleActivity : AppCompatActivity() {
             .setView(row)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("OK") { _, _ ->
-                // February 29 is allowed: MonthDay accepts it and it simply never
-                // matches in a common year.
                 runCatching { MonthDay.of(monthPicker.value, dayPicker.value) }
                     .getOrNull()
                     ?.let(onPicked)

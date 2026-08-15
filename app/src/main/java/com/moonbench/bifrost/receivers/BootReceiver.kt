@@ -18,9 +18,6 @@ class BootReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("bifrost_prefs", Context.MODE_PRIVATE)
 
-        // Alarms do not survive a reboot, so the schedule re-arms itself here —
-        // and it does so whether or not auto-start is on, since a rule may be the
-        // very thing meant to light the sticks after boot.
         ScheduleApplier.apply(context)
 
         if (!HeimdallStartupManager.isAutoStartEnabled(prefs)) return
