@@ -58,9 +58,16 @@ class BifrostTileService : TileService() {
         val prefs = getSharedPreferences("bifrost_prefs", Context.MODE_PRIVATE)
         val serviceIntent = HeimdallStartupManager.buildStartupDecision(this, prefs).serviceIntent
 
-        // No preset saved yet, or the preset needs screen capture: both need the
-        // app on screen, either to build a preset or to grant projection.
-        if (serviceIntent == null || needsForegroundConsent(serviceIntent, prefs)) {
+        if (serviceIntent == null) {
+            // Nothing to play yet — open the app so a preset can be built.
+            openApp(startOnArrival = false)
+            return
+        }
+
+        // The preset captures the screen through MediaProjection, whose consent
+        // dialog needs a visible Activity: hand over to the app, which starts
+        // the service once the prompt is answered.
+        if (needsForegroundConsent(serviceIntent, prefs)) {
             openApp()
             return
         }
@@ -85,9 +92,12 @@ class BifrostTileService : TileService() {
             prefs.getBoolean(LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION, false)
     }
 
-    private fun openApp() {
+    private fun openApp(startOnArrival: Boolean = true) {
         val launch = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            // Opening the app is a means, not the goal: the tile was tapped to
+            // call Heimdall, so the app starts it as soon as it can prompt.
+            if (startOnArrival) putExtra(MainActivity.EXTRA_START_FROM_TILE, true)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

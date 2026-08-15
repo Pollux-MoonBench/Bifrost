@@ -270,6 +270,7 @@ class MainActivity : AppCompatActivity() {
         private val DEFAULT_CPU_HOT_COLOR = Color.rgb(255, 0, 0)
 
         const val EXTRA_GRANT_PROJECTION_FOR_APP_PROFILE = "grant_projection_for_app_profile"
+        const val EXTRA_START_FROM_TILE = "start_from_tile"
     }
 
     private var selectedAnimationType: LedAnimationType = LedAnimationType.AMBIENT
@@ -589,6 +590,24 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAppProfileProjectionIntent(intent)
+        handleTileStartIntent(intent)
+    }
+
+    /**
+     * The Quick Settings tile starts the service itself when it can. When the
+     * chosen animation needs a projection token it can't — consent needs a
+     * visible Activity — so it opens the app with this flag, and the app
+     * finishes the job by flipping the same switch the user would have pressed.
+     */
+    private fun handleTileStartIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_START_FROM_TILE, false) != true) return
+        // Consume the flag so a configuration change doesn't restart the service.
+        intent.removeExtra(EXTRA_START_FROM_TILE)
+
+        if (LEDService.isRunning) return
+        if (!checkNotificationPermission()) return
+
+        serviceToggle.isChecked = true
     }
 
     private fun handleAppProfileProjectionIntent(intent: Intent?) {
@@ -772,6 +791,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         maybeAutoStartHeimdallOnLaunch()
+        handleTileStartIntent(intent)
 
         isAppInitialized = true
 
