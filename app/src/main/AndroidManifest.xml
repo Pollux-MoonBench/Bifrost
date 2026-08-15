@@ -63,6 +63,11 @@
             android:exported="false"
             android:label="Plugin Store" />
 
+        <activity
+            android:name=".schedule.ScheduleActivity"
+            android:exported="false"
+            android:label="Schedule" />
+
         <service
             android:name=".services.LEDService"
             android:foregroundServiceType="mediaProjection"

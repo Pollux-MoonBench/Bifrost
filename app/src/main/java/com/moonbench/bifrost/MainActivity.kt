@@ -91,6 +91,7 @@ import java.util.Locale
 import java.io.File
 import com.moonbench.bifrost.plugins.PluginLaunchManager
 import com.moonbench.bifrost.plugins.PluginStoreActivity
+import com.moonbench.bifrost.schedule.ScheduleActivity
 
 class MainActivity : AppCompatActivity() {
 
@@ -2987,6 +2988,9 @@ class MainActivity : AppCompatActivity() {
     private fun setupPluginStore() {
         findViewById<View>(R.id.pluginStoreButton)?.setOnClickListener {
             startActivity(Intent(this, PluginStoreActivity::class.java))
+        }
+        findViewById<View>(R.id.scheduleButton)?.setOnClickListener {
+            startActivity(Intent(this, ScheduleActivity::class.java))
         }
     }
 
