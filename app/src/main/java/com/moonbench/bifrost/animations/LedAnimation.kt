@@ -23,6 +23,7 @@ abstract class LedAnimation(protected val ledController: LedController) {
     open fun setTargetColor(color: Int) {}
     open fun setTargetRightColor(color: Int) {}
     open fun setFadeEndColor(color: Int) {}
+    open fun setFadeEndRightColor(color: Int) {}
     open fun setTargetBrightness(brightness: Int) {}
     open fun setLerpStrength(strength: Float) {}
     open fun setSpeed(speed: Float) {}

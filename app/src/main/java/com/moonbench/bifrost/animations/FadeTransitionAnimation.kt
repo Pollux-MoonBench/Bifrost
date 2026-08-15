@@ -10,7 +10,8 @@ class FadeTransitionAnimation(
     ledController: LedController,
     initialColor: Int,
     initialRightColor: Int = initialColor,
-    initialEndColor: Int = DEFAULT_END_COLOR
+    initialEndColor: Int = DEFAULT_END_COLOR,
+    initialEndRightColor: Int = initialEndColor
 ) : LedAnimation(ledController) {
 
     companion object {
@@ -29,6 +30,7 @@ class FadeTransitionAnimation(
     private var targetColor: Int = initialColor
     private var targetRightColor: Int = initialRightColor
     private var endColor: Int = initialEndColor
+    private var endRightColor: Int = initialEndRightColor
     private var targetBrightness: Int = 255
     private var speed: Float = 0.5f
     private var progress = 0f
@@ -46,6 +48,10 @@ class FadeTransitionAnimation(
         endColor = color
     }
 
+    override fun setFadeEndRightColor(color: Int) {
+        endRightColor = color
+    }
+
     override fun setTargetBrightness(brightness: Int) {
         targetBrightness = brightness.coerceIn(0, 255)
     }
@@ -59,7 +65,7 @@ class FadeTransitionAnimation(
             if (!running) return
 
             val currentLeftColor = lerpColor(targetColor, endColor, progress)
-            val currentRightColor = lerpColor(targetRightColor, endColor, progress)
+            val currentRightColor = lerpColor(targetRightColor, endRightColor, progress)
 
             val globalScale = targetBrightness / 255f
 

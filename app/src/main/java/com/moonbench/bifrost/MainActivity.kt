@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var colorButton: MaterialButton
     private lateinit var rightColorButton: MaterialButton
     private lateinit var fadeEndColorButton: MaterialButton
+    private lateinit var fadeEndRightColorButton: MaterialButton
     private lateinit var batteryLowColorButton: MaterialButton
     private lateinit var batteryMidColorButton: MaterialButton
     private lateinit var batteryHighColorButton: MaterialButton
@@ -278,6 +279,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedColor: Int = Color.WHITE
     private var selectedRightColor: Int = Color.WHITE
     private var selectedFadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
+    private var selectedFadeEndRightColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
     private var selectedBatteryLowColorOverride: Int? = null
     private var selectedBatteryMidColorOverride: Int? = null
     private var selectedBatteryHighColorOverride: Int? = null
@@ -672,6 +674,7 @@ class MainActivity : AppCompatActivity() {
         colorButton = findViewById(R.id.colorButton)
         rightColorButton = findViewById(R.id.rightColorButton)
         fadeEndColorButton = findViewById(R.id.fadeEndColorButton)
+        fadeEndRightColorButton = findViewById(R.id.fadeEndRightColorButton)
         batteryLowColorButton = findViewById(R.id.batteryLowColorButton)
         batteryMidColorButton = findViewById(R.id.batteryMidColorButton)
         batteryHighColorButton = findViewById(R.id.batteryHighColorButton)
@@ -2652,8 +2655,10 @@ class MainActivity : AppCompatActivity() {
         colorButton.setBackgroundColor(selectedColor)
         rightColorButton.setOnClickListener { showColorPicker(isRight = true) }
         rightColorButton.setBackgroundColor(selectedRightColor)
-        fadeEndColorButton.setOnClickListener { showFadeEndColorPicker() }
+        fadeEndColorButton.setOnClickListener { showFadeEndColorPicker(isRight = false) }
         fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
+        fadeEndRightColorButton.setOnClickListener { showFadeEndColorPicker(isRight = true) }
+        fadeEndRightColorButton.setBackgroundColor(selectedFadeEndRightColor)
 
         batteryLowColorButton.setOnClickListener {
             showOptionalColorPicker(selectedBatteryLowColorOverride ?: DEFAULT_BATTERY_LOW_COLOR) {
@@ -3243,6 +3248,7 @@ class MainActivity : AppCompatActivity() {
             color = selectedColor,
             rightColor = selectedRightColor,
             fadeEndColor = selectedFadeEndColor,
+            fadeEndRightColor = selectedFadeEndRightColor,
             brightness = selectedBrightness,
             speed = selectedSpeed,
             smoothness = selectedSmoothness,
@@ -3276,6 +3282,7 @@ class MainActivity : AppCompatActivity() {
                     color = selectedColor,
                     rightColor = selectedRightColor,
                     fadeEndColor = selectedFadeEndColor,
+                    fadeEndRightColor = selectedFadeEndRightColor,
                     brightness = selectedBrightness,
                     speed = selectedSpeed,
                     smoothness = selectedSmoothness,
@@ -3300,6 +3307,7 @@ class MainActivity : AppCompatActivity() {
                 selectedColor = preset.color
                 selectedRightColor = preset.rightColor
                 selectedFadeEndColor = preset.fadeEndColor
+                selectedFadeEndRightColor = preset.fadeEndRightColor
                 selectedBrightness = preset.brightness
                 selectedSpeed = preset.speed
                 selectedSmoothness = preset.smoothness
@@ -3326,6 +3334,7 @@ class MainActivity : AppCompatActivity() {
                 colorButton.setBackgroundColor(selectedColor)
                 rightColorButton.setBackgroundColor(selectedRightColor)
                 fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
+                fadeEndRightColorButton.setBackgroundColor(selectedFadeEndRightColor)
                 brightnessSeekBar.progress = selectedBrightness
                 val progress = (selectedSpeed * 100).toInt()
                 speedSeekBar.progress = progress
@@ -3880,13 +3889,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showFadeEndColorPicker() {
+    private fun showFadeEndColorPicker(isRight: Boolean) {
         colorPickerDialog.show(
             activity = this,
-            initialColor = selectedFadeEndColor
+            initialColor = if (isRight) selectedFadeEndRightColor else selectedFadeEndColor
         ) { color ->
-            selectedFadeEndColor = color
-            fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
+            if (isRight) {
+                selectedFadeEndRightColor = color
+                fadeEndRightColorButton.setBackgroundColor(selectedFadeEndRightColor)
+            } else {
+                selectedFadeEndColor = color
+                fadeEndColorButton.setBackgroundColor(selectedFadeEndColor)
+            }
             if (LEDService.isRunning && !serviceController.isServiceTransitioning && !isUpdatingFromPreset) {
                 sendLiveUpdateToLedService()
             }
@@ -4023,6 +4037,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("animationColor", selectedColor)
             putExtra("animationRightColor", selectedRightColor)
             putExtra(LEDService.EXTRA_FADE_END_COLOR, selectedFadeEndColor)
+            putExtra(LEDService.EXTRA_FADE_END_RIGHT_COLOR, selectedFadeEndRightColor)
             putExtra("brightness", selectedBrightness)
             putExtra("speed", selectedSpeed)
             putExtra("smoothness", selectedSmoothness)
@@ -4080,6 +4095,7 @@ class MainActivity : AppCompatActivity() {
             putExtra("animationColor", selectedColor)
             putExtra("animationRightColor", selectedRightColor)
             putExtra(LEDService.EXTRA_FADE_END_COLOR, selectedFadeEndColor)
+            putExtra(LEDService.EXTRA_FADE_END_RIGHT_COLOR, selectedFadeEndRightColor)
             putExtra("brightness", selectedBrightness)
             putExtra("speed", selectedSpeed)
             putExtra("smoothness", selectedSmoothness)

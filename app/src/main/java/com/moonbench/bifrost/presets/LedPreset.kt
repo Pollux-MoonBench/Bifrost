@@ -10,8 +10,10 @@ data class LedPreset(
     val performanceProfile: PerformanceProfile,
     val color: Int,
     val rightColor: Int = color,
-    // FADE_TRANSITION only: the colour both sticks fade towards.
+    // FADE_TRANSITION only: the colour each stick fades towards, mirroring the
+    // per-stick start colours above.
     val fadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR,
+    val fadeEndRightColor: Int = fadeEndColor,
     val brightness: Int,
     val speed: Float,
     val smoothness: Float,

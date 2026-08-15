@@ -25,6 +25,18 @@ class FadeEndColorDefaultTest {
         assertEquals(FadeTransitionAnimation.DEFAULT_END_COLOR, parsed)
     }
 
+    @Test fun rightTargetFallsBackToTheLeftOneWhenAbsent() {
+        // Presets written between the single-target and per-stick versions carry
+        // "fadeEndColor" alone. Falling back to it — not to the historical cyan —
+        // keeps those presets looking exactly as they did.
+        val singleTarget = JSONObject("""{"name":"Mid","fadeEndColor":-65536}""")
+
+        val left = singleTarget.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR)
+        val right = singleTarget.optInt("fadeEndRightColor", left)
+
+        assertEquals(-65536, right)
+    }
+
     @Test fun presetJsonWithTheKeyKeepsTheStoredColour() {
         val stored = JSONObject("""{"name":"New","color":-1,"fadeEndColor":-65536}""")
 

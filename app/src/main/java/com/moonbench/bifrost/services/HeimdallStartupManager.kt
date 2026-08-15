@@ -81,6 +81,7 @@ object HeimdallStartupManager {
             putExtra("animationColor", preset.color)
             putExtra("animationRightColor", preset.rightColor)
             putExtra(LEDService.EXTRA_FADE_END_COLOR, preset.fadeEndColor)
+            putExtra(LEDService.EXTRA_FADE_END_RIGHT_COLOR, preset.fadeEndRightColor)
             putExtra("brightness", preset.brightness)
             putExtra("speed", preset.speed)
             putExtra("smoothness", preset.smoothness)
@@ -163,6 +164,7 @@ object HeimdallStartupManager {
             color = color,
             rightColor = obj.optInt("rightColor", color),
             fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
+            fadeEndRightColor = obj.optInt("fadeEndRightColor", obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR)),
             brightness = obj.optInt("brightness", 255),
             speed = obj.optDouble("speed", 0.5).toFloat(),
             smoothness = obj.optDouble("smoothness", 0.5).toFloat(),
@@ -182,6 +184,7 @@ object HeimdallStartupManager {
         val color: Int,
         val rightColor: Int,
         val fadeEndColor: Int,
+        val fadeEndRightColor: Int,
         val brightness: Int,
         val speed: Float,
         val smoothness: Float,

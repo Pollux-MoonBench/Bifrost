@@ -273,6 +273,7 @@ class PresetController(
             current.color != selectedPreset.color ||
             current.rightColor != selectedPreset.rightColor ||
             current.fadeEndColor != selectedPreset.fadeEndColor ||
+            current.fadeEndRightColor != selectedPreset.fadeEndRightColor ||
             current.brightness != selectedPreset.brightness ||
             current.speed != selectedPreset.speed ||
             current.smoothness != selectedPreset.smoothness ||
@@ -380,6 +381,7 @@ class PresetController(
                     color = color,
                     rightColor = obj.optInt("rightColor", color),
                     fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
+                    fadeEndRightColor = obj.optInt("fadeEndRightColor", obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR)),
                     brightness = obj.optInt("brightness", 255),
                     speed = obj.optDouble("speed", 0.5).toFloat(),
                     smoothness = obj.optDouble("smoothness", 0.5).toFloat(),
@@ -421,6 +423,7 @@ class PresetController(
             obj.put("color", preset.color)
             obj.put("rightColor", preset.rightColor)
             obj.put("fadeEndColor", preset.fadeEndColor)
+            obj.put("fadeEndRightColor", preset.fadeEndRightColor)
             obj.put("brightness", preset.brightness)
             obj.put("speed", preset.speed.toDouble())
             obj.put("smoothness", preset.smoothness.toDouble())

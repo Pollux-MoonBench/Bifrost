@@ -145,6 +145,7 @@ class LEDService : Service() {
         private const val EXTRA_CPU_WARM_COLOR_OVERRIDE = "cpuWarmColorOverride"
         private const val EXTRA_CPU_HOT_COLOR_OVERRIDE = "cpuHotColorOverride"
         const val EXTRA_FADE_END_COLOR = "fadeEndColor"
+        const val EXTRA_FADE_END_RIGHT_COLOR = "fadeEndRightColor"
         private const val COLOR_OVERRIDE_UNSET = Int.MIN_VALUE
         private const val PROJECTION_PROMPT_CHANNEL_ID = "bifrost_projection_prompt_channel_v2"
         private const val PROJECTION_PROMPT_NOTIFICATION_ID = 4244
@@ -179,6 +180,7 @@ class LEDService : Service() {
     private var currentUseCustomSampling: Boolean = false
     private var currentUseSingleColor: Boolean = false
     private var currentFadeEndColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
+    private var currentFadeEndRightColor: Int = FadeTransitionAnimation.DEFAULT_END_COLOR
     private var currentBreatheWhenCharging: Boolean = false
     private var currentIndicateChargingSpeed: Boolean = false
     private var currentFlashWhenReady: Boolean = false
@@ -499,6 +501,10 @@ class LEDService : Service() {
             EXTRA_FADE_END_COLOR,
             FadeTransitionAnimation.DEFAULT_END_COLOR
         )
+        currentFadeEndRightColor = intent.getIntExtra(
+            EXTRA_FADE_END_RIGHT_COLOR,
+            currentFadeEndColor
+        )
         currentBreatheWhenCharging = intent.getBooleanExtra("breatheWhenCharging", false)
         currentIndicateChargingSpeed = intent.getBooleanExtra("indicateChargingSpeed", false)
         currentFlashWhenReady = intent.getBooleanExtra("flashWhenReady", false)
@@ -570,6 +576,14 @@ class LEDService : Service() {
                     restartAnimationForCurrentState(force = true)
                     return
                 }
+            }
+        }
+
+        if (intent.hasExtra(EXTRA_FADE_END_RIGHT_COLOR)) {
+            val newFadeEndRight = intent.getIntExtra(EXTRA_FADE_END_RIGHT_COLOR, currentFadeEndRightColor)
+            if (newFadeEndRight != currentFadeEndRightColor) {
+                currentFadeEndRightColor = newFadeEndRight
+                animation?.setFadeEndRightColor(currentFadeEndRightColor)
             }
         }
 
@@ -1023,6 +1037,7 @@ class LEDService : Service() {
         currentColor = preset.color
         currentRightColor = preset.rightColor
         currentFadeEndColor = preset.fadeEndColor
+        currentFadeEndRightColor = preset.fadeEndRightColor
         currentBrightness = preset.brightness
         currentSpeed = preset.speed
         currentSmoothness = preset.smoothness
@@ -1774,7 +1789,8 @@ class LEDService : Service() {
                 ledController,
                 color,
                 rightColor,
-                currentFadeEndColor
+                currentFadeEndColor,
+                currentFadeEndRightColor
             )
             LedAnimationType.RAVE -> RaveAnimation(ledController)
             LedAnimationType.CHASE -> ChaseAnimation(ledController, color, rightColor)

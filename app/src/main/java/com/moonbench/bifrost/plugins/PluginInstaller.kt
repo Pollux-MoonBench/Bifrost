@@ -104,6 +104,7 @@ object PluginInstaller {
         put("color", p.color)
         put("rightColor", p.rightColor)
         put("fadeEndColor", p.fadeEndColor)
+        put("fadeEndRightColor", p.fadeEndRightColor)
         put("brightness", p.brightness)
         put("speed", p.speed.toDouble())
         put("smoothness", p.smoothness.toDouble())

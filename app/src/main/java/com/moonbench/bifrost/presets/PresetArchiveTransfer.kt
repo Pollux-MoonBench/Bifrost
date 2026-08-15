@@ -60,6 +60,7 @@ object PresetArchiveTransfer {
             presetJson.put("color", preset.color)
             presetJson.put("rightColor", preset.rightColor)
             presetJson.put("fadeEndColor", preset.fadeEndColor)
+            presetJson.put("fadeEndRightColor", preset.fadeEndRightColor)
             presetJson.put("brightness", preset.brightness)
             presetJson.put("speed", preset.speed.toDouble())
             presetJson.put("smoothness", preset.smoothness.toDouble())
@@ -307,6 +308,7 @@ object PresetArchiveTransfer {
             color = color,
             rightColor = obj.optInt("rightColor", color),
             fadeEndColor = obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR),
+            fadeEndRightColor = obj.optInt("fadeEndRightColor", obj.optInt("fadeEndColor", FadeTransitionAnimation.DEFAULT_END_COLOR)),
             brightness = obj.optInt("brightness", 255).coerceIn(0, 255),
             speed = obj.optDouble("speed", 0.5).toFloat().coerceIn(0f, 1f),
             smoothness = obj.optDouble("smoothness", 0.5).toFloat().coerceIn(0f, 1f),
