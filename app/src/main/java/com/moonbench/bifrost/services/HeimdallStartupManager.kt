@@ -39,6 +39,27 @@ object HeimdallStartupManager {
         return buildStartupDecision(context, prefs).serviceIntent
     }
 
+    /**
+     * Same intent as an auto-start, but for a preset picked by name — used by the
+     * schedule, which names the preset a rule should play. Returns null when no
+     * preset by that name is stored (deleted since the rule was written).
+     */
+    fun buildServiceIntentForPreset(
+        context: Context,
+        prefs: SharedPreferences,
+        presetName: String
+    ): Intent? {
+        val raw = prefs.getString(PREF_KEY_PRESETS, null) ?: return null
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return null
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            if (obj.optString("name") == presetName) {
+                return buildServiceIntent(context, prefs, parsePreset(obj))
+            }
+        }
+        return null
+    }
+
     fun buildStartupDecision(context: Context, prefs: SharedPreferences): StartupDecision {
         val preset = loadStartupPreset(prefs)
             ?: return StartupDecision(
@@ -46,7 +67,15 @@ object HeimdallStartupManager {
                 skipReason = StartupSkipReason.NO_PRESET_AVAILABLE
             )
 
-        val serviceIntent = Intent(context, LEDService::class.java).apply {
+        return StartupDecision(serviceIntent = buildServiceIntent(context, prefs, preset))
+    }
+
+    private fun buildServiceIntent(
+        context: Context,
+        prefs: SharedPreferences,
+        preset: StartupPreset
+    ): Intent {
+        return Intent(context, LEDService::class.java).apply {
             putExtra("animationType", preset.animationType.name)
             putExtra("performanceProfile", preset.performanceProfile.name)
             putExtra("animationColor", preset.color)
@@ -72,8 +101,6 @@ object HeimdallStartupManager {
             )
             putExtra(LEDService.EXTRA_ALLOW_BACKGROUND_RUN, true)
         }
-
-        return StartupDecision(serviceIntent = serviceIntent)
     }
 
     private fun loadStartupPreset(prefs: SharedPreferences): StartupPreset? {
