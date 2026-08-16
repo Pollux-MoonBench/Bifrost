@@ -73,6 +73,7 @@ import com.moonbench.bifrost.services.LEDService
 import com.moonbench.bifrost.services.LiveWallpaperSettingsManager
 import com.moonbench.bifrost.services.ServiceController
 import com.moonbench.bifrost.services.VideoLiveWallpaperService
+import com.moonbench.bifrost.tools.CrashReporter
 import com.moonbench.bifrost.tools.DeviceInfo
 import com.moonbench.bifrost.tools.PerformanceProfile
 import com.moonbench.bifrost.ui.AnimatedRainbowDrawable
@@ -596,6 +597,31 @@ class MainActivity : AppCompatActivity() {
         handleTileStartIntent(intent)
     }
 
+    private fun maybeOfferCrashReport() {
+        val report = runCatching { CrashReporter.existingReport(this) }.getOrNull() ?: return
+        val body = runCatching { report.readText() }.getOrNull()?.take(8000) ?: return
+
+        BifrostAlertDialog().show(
+            activity = this,
+            title = getString(R.string.crash_report_title),
+            subtitle = getString(R.string.crash_report_subtitle),
+            body = getString(R.string.crash_report_body),
+            positiveLabelResId = R.string.crash_report_share,
+            negativeLabelResId = R.string.crash_report_dismiss,
+            cancelable = true,
+            onConfirm = {
+                CrashReporter.clear(this)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Bifrost crash report")
+                    putExtra(Intent.EXTRA_TEXT, body)
+                }
+                runCatching { startActivity(Intent.createChooser(share, "Send crash report")) }
+            },
+            onCancel = { CrashReporter.clear(this) }
+        )
+    }
+
     private fun handleTileStartIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_START_FROM_TILE, false) != true) return
         intent.removeExtra(EXTRA_START_FROM_TILE)
@@ -789,6 +815,7 @@ class MainActivity : AppCompatActivity() {
 
         maybeAutoStartHeimdallOnLaunch()
         handleTileStartIntent(intent)
+        maybeOfferCrashReport()
 
         isAppInitialized = true
 
