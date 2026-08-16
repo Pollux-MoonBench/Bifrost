@@ -561,9 +561,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (shouldLaunchStartupGuide()) {
-            startActivity(Intent(this, StartupGuideActivity::class.java))
-            finish()
-            return
+            runCatching { startActivity(Intent(this, StartupGuideActivity::class.java)) }
         }
 
         setContentView(R.layout.activity_main)
