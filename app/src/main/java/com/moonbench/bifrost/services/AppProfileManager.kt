@@ -321,7 +321,7 @@ class AppProfileManager(private val prefs: SharedPreferences) {
             if (obj.optString("name") != name) continue
 
             val type = runCatching {
-                LedAnimationType.valueOf(obj.optString("animationType", LedAnimationType.STATIC.name))
+                LedAnimationType.fromStoredName(obj.optString("animationType")) ?: LedAnimationType.STATIC
             }.getOrDefault(LedAnimationType.STATIC)
 
             val profile = runCatching {

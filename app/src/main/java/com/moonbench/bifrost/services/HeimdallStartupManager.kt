@@ -142,7 +142,7 @@ object HeimdallStartupManager {
 
     private fun parsePreset(obj: JSONObject): StartupPreset {
         val animationType = runCatching {
-            LedAnimationType.valueOf(obj.optString("animationType", LedAnimationType.STATIC.name))
+            LedAnimationType.fromStoredName(obj.optString("animationType")) ?: LedAnimationType.STATIC
         }.getOrDefault(LedAnimationType.STATIC)
 
         val performanceProfile = runCatching {

@@ -59,7 +59,7 @@ class BifrostTileService : TileService() {
         prefs: android.content.SharedPreferences
     ): Boolean {
         val type = serviceIntent.getStringExtra("animationType")
-            ?.let { name -> runCatching { LedAnimationType.valueOf(name) }.getOrNull() }
+            ?.let { name -> LedAnimationType.fromStoredName(name) }
             ?: return false
 
         if (type.needsMediaProjection) return true

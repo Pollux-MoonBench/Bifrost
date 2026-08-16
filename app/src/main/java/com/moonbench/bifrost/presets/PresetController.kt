@@ -345,9 +345,8 @@ class PresetController(
             val obj = array.optJSONObject(i) ?: continue
 
             val name = obj.optString("name", "Preset ${i + 1}")
-            val type = runCatching {
-                LedAnimationType.valueOf(obj.optString("animationType", LedAnimationType.STATIC.name))
-            }.getOrDefault(LedAnimationType.STATIC)
+            val type = LedAnimationType.fromStoredName(obj.optString("animationType"))
+                ?: LedAnimationType.STATIC
 
             val profile = runCatching {
                 PerformanceProfile.valueOf(obj.optString("performanceProfile", PerformanceProfile.HIGH.name))

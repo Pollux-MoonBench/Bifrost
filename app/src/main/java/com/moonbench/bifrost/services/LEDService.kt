@@ -490,7 +490,7 @@ class LEDService : Service() {
 
         val animationTypeName = intent.getStringExtra("animationType")
         val animationType = animationTypeName?.let {
-            runCatching { LedAnimationType.valueOf(it) }.getOrNull()
+            LedAnimationType.fromStoredName(it)
         } ?: LedAnimationType.AMBIENT
 
         val profileName = intent.getStringExtra("performanceProfile")

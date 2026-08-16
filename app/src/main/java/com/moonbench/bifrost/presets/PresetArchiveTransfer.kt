@@ -256,7 +256,7 @@ object PresetArchiveTransfer {
         val name = obj.optString("name").takeIf { it.isNotBlank() } ?: "Imported Preset ${index + 1}"
 
         val animationTypeName = obj.optString("animationType", LedAnimationType.STATIC.name)
-        val animationType = runCatching { LedAnimationType.valueOf(animationTypeName) }
+        val animationType = runCatching { LedAnimationType.fromStoredName(animationTypeName)!! }
             .onFailure { warnings += "Preset '$name': unknown animation '$animationTypeName', using STATIC." }
             .getOrDefault(LedAnimationType.STATIC)
 

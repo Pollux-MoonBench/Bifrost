@@ -21,5 +21,14 @@ enum class LedAnimationType(
     FADE_TRANSITION(false, true, true, false, false),
     RAVE(false, false, true, false, false),
     CHASE(false, true, true, false, false),
-    PIPBOY(false, true, false, false, false),
+    PIPBOY(false, true, false, false, false);
+
+    companion object {
+        private val LEGACY_NAMES = mapOf("AMBILIGHT" to AMBIENT)
+
+        fun fromStoredName(value: String?): LedAnimationType? {
+            if (value.isNullOrBlank()) return null
+            return runCatching { valueOf(value) }.getOrNull() ?: LEGACY_NAMES[value.uppercase()]
+        }
+    }
 }
