@@ -16,12 +16,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <permission
-        android:name="com.moonbench.bifrost.permission.CONTROL_LEDS"
+        android:name="${applicationId}.permission.CONTROL_LEDS"
         android:label="@string/perm_control_leds_label"
         android:description="@string/perm_control_leds_desc"
         android:protectionLevel="normal" />
 
-    <uses-permission android:name="com.moonbench.bifrost.permission.CONTROL_LEDS" />
+    <uses-permission android:name="${applicationId}.permission.CONTROL_LEDS" />
 
 
     <queries>
@@ -78,7 +78,6 @@
                 android:value="Persistent LED control with accessibility-based screen capture" />
         </service>
 
-             the system's accessibility settings only if declared here: without
         <service
             android:name=".services.BifrostAccessibilityService"
             android:exported="true"
@@ -142,7 +141,7 @@
             android:name=".external.ExternalApiReceiver"
             android:enabled="true"
             android:exported="true"
-            android:permission="com.moonbench.bifrost.permission.CONTROL_LEDS">
+            android:permission="${applicationId}.permission.CONTROL_LEDS">
             <intent-filter>
                 <action android:name="com.moonbench.bifrost.api.ACTION_DISPLAY" />
                 <action android:name="com.moonbench.bifrost.api.ACTION_CLEAR" />

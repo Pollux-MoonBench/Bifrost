@@ -22,3 +22,6 @@ release-key.jks
 
 # Release signing credentials — never commit
 keystore.properties
+
+# Build outputs copied next to the module (Android Studio "locate" folder)
+app/release/
