@@ -101,6 +101,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pluggedBatteryOverrideSwitch: SwitchMaterial
     private lateinit var persistentNotificationSwitch: SwitchMaterial
     private lateinit var adaptiveBrightnessSwitch: SwitchMaterial
+    private lateinit var lowBatteryAlertSwitch: SwitchMaterial
+    private lateinit var lowBatteryAlertOptionsContainer: View
+    private lateinit var lowBatteryChargingOptionRow: View
+    private lateinit var lowBatteryAlertSeekBar: SeekBar
+    private lateinit var lowBatteryAlertValueText: TextView
+    private lateinit var disableLowBatteryAlertWhileChargingSwitch: SwitchMaterial
     private lateinit var externalApiSwitch: SwitchMaterial
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var animationSpinner: Spinner
@@ -242,6 +248,9 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_THOR_AMBIENT_BOTTOM_SCREEN = "thor_ambient_bottom_screen"
         private const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = LEDService.PREF_AMBILIGHT_USE_MEDIA_PROJECTION
         private const val PREF_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
+        private const val PREF_LOW_BATTERY_ALERT_ENABLED = "low_battery_alert_enabled"
+        private const val PREF_LOW_BATTERY_ALERT_THRESHOLD = "low_battery_alert_threshold"
+        private const val PREF_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING = "disable_low_battery_alert_while_charging"
         private const val PREF_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
         private const val PREF_ADAPTIVE_BRIGHTNESS = "adaptive_brightness_enabled"
         private const val PREF_SELECTED_UI_THEME = "selected_ui_theme"
@@ -299,6 +308,9 @@ class MainActivity : AppCompatActivity() {
     private var selectedIndicateChargingSpeed: Boolean = false
     private var selectedFlashWhenReady: Boolean = false
     private var selectedBatteryOverrideWhenPlugged: Boolean = false
+    private var selectedLowBatteryAlertEnabled: Boolean = false
+    private var selectedLowBatteryAlertThreshold: Int = 20
+    private var selectedDisableLowBatteryAlertWhileCharging: Boolean = false
     private var selectedPersistentNotification: Boolean = true
     private var selectedAdaptiveBrightness: Boolean = false
     private var isAwaitingPermissionResult = false
@@ -676,6 +688,14 @@ class MainActivity : AppCompatActivity() {
         pluggedBatteryOverrideSwitch = findViewById(R.id.pluggedBatteryOverrideSwitch)
         persistentNotificationSwitch = findViewById(R.id.persistentNotificationSwitch)
         adaptiveBrightnessSwitch = findViewById(R.id.adaptiveBrightnessSwitch)
+        lowBatteryAlertSwitch = findViewById(R.id.lowBatteryAlertSwitch)
+        lowBatteryAlertOptionsContainer = findViewById(R.id.lowBatteryAlertOptionsContainer)
+        lowBatteryChargingOptionRow = findViewById(R.id.lowBatteryChargingOptionRow)
+        lowBatteryAlertSeekBar = findViewById(R.id.lowBatteryAlertSeekBar)
+        lowBatteryAlertValueText = findViewById(R.id.lowBatteryAlertValueText)
+        disableLowBatteryAlertWhileChargingSwitch = findViewById(
+            R.id.disableLowBatteryAlertWhileChargingSwitch
+        )
         externalApiSwitch = findViewById(R.id.externalApiSwitch)
         animationSpinner = findViewById(R.id.animationSpinner)
         profileSpinner = findViewById(R.id.profileSpinner)
@@ -767,6 +787,9 @@ class MainActivity : AppCompatActivity() {
         setupPluggedBatteryOverrideSwitch()
         setupPersistentNotificationSwitch()
         setupAdaptiveBrightnessSwitch()
+        setupLowBatteryAlertSwitch()
+        setupLowBatteryAlertSeekBar()
+        setupDisableLowBatteryAlertWhileChargingSwitch()
         setupExternalApiSwitch()
         setupPluginStore()
         setupThorScreenPreference()
@@ -3044,6 +3067,81 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupLowBatteryAlertSwitch() {
+        val storedThreshold = prefs.getInt(PREF_LOW_BATTERY_ALERT_THRESHOLD, 0)
+        selectedLowBatteryAlertThreshold = storedThreshold.takeIf { it in 1..100 } ?: 20
+        selectedLowBatteryAlertEnabled = if (prefs.contains(PREF_LOW_BATTERY_ALERT_ENABLED)) {
+            prefs.getBoolean(PREF_LOW_BATTERY_ALERT_ENABLED, false)
+        } else {
+            storedThreshold > 0
+        }
+        lowBatteryAlertSwitch.isChecked = selectedLowBatteryAlertEnabled
+        updateLowBatteryAlertOptionsVisibility()
+        lowBatteryAlertSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedLowBatteryAlertEnabled = isChecked
+            prefs.edit()
+                .putBoolean(PREF_LOW_BATTERY_ALERT_ENABLED, isChecked)
+                .putInt(PREF_LOW_BATTERY_ALERT_THRESHOLD, selectedLowBatteryAlertThreshold)
+                .apply()
+            updateLowBatteryAlertOptionsVisibility()
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
+    private fun updateLowBatteryAlertOptionsVisibility() {
+        val visibility = if (selectedLowBatteryAlertEnabled) View.VISIBLE else View.GONE
+        lowBatteryAlertOptionsContainer.visibility = visibility
+        lowBatteryChargingOptionRow.visibility = visibility
+    }
+
+    private fun setupLowBatteryAlertSeekBar() {
+        lowBatteryAlertSeekBar.min = 1
+        lowBatteryAlertSeekBar.max = 100
+        lowBatteryAlertSeekBar.progress = selectedLowBatteryAlertThreshold
+        updateLowBatteryAlertValue()
+        lowBatteryAlertSeekBar.setOnSeekBarChangeListener(
+            object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    selectedLowBatteryAlertThreshold = progress
+                    updateLowBatteryAlertValue()
+                    if (fromUser) {
+                        prefs.edit().putInt(PREF_LOW_BATTERY_ALERT_THRESHOLD, progress).apply()
+                        if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                            sendLiveUpdateToLedService()
+                        }
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            }
+        )
+    }
+
+    private fun updateLowBatteryAlertValue() {
+        lowBatteryAlertValueText.text = "$selectedLowBatteryAlertThreshold%"
+    }
+
+    private fun setupDisableLowBatteryAlertWhileChargingSwitch() {
+        selectedDisableLowBatteryAlertWhileCharging = prefs.getBoolean(
+            PREF_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING,
+            false
+        )
+        disableLowBatteryAlertWhileChargingSwitch.isChecked =
+            selectedDisableLowBatteryAlertWhileCharging
+        disableLowBatteryAlertWhileChargingSwitch.setOnCheckedChangeListener { _, isChecked ->
+            selectedDisableLowBatteryAlertWhileCharging = isChecked
+            prefs.edit()
+                .putBoolean(PREF_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING, isChecked)
+                .apply()
+            if (LEDService.isRunning && !serviceController.isServiceTransitioning) {
+                sendLiveUpdateToLedService()
+            }
+        }
+    }
+
     private fun setupExternalApiSwitch() {
         externalApiSwitch.isChecked = ExternalApiGate.isMasterEnabled(prefs)
         externalApiSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -4107,6 +4205,18 @@ class MainActivity : AppCompatActivity() {
                 selectedBatteryOverrideWhenPlugged
             )
             putExtra(
+                LEDService.EXTRA_LOW_BATTERY_ALERT_ENABLED,
+                selectedLowBatteryAlertEnabled
+            )
+            putExtra(
+                LEDService.EXTRA_LOW_BATTERY_ALERT_THRESHOLD,
+                selectedLowBatteryAlertThreshold
+            )
+            putExtra(
+                LEDService.EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING,
+                selectedDisableLowBatteryAlertWhileCharging
+            )
+            putExtra(
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,
                 selectedPersistentNotification
             )
@@ -4163,6 +4273,18 @@ class MainActivity : AppCompatActivity() {
             putExtra(
                 LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
                 selectedBatteryOverrideWhenPlugged
+            )
+            putExtra(
+                LEDService.EXTRA_LOW_BATTERY_ALERT_ENABLED,
+                selectedLowBatteryAlertEnabled
+            )
+            putExtra(
+                LEDService.EXTRA_LOW_BATTERY_ALERT_THRESHOLD,
+                selectedLowBatteryAlertThreshold
+            )
+            putExtra(
+                LEDService.EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING,
+                selectedDisableLowBatteryAlertWhileCharging
             )
             putExtra(
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,
@@ -4259,4 +4381,3 @@ class MainActivity : AppCompatActivity() {
         return runCatching { getString(resId) }.getOrDefault(fallback)
     }
 }
-

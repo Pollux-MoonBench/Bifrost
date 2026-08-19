@@ -15,6 +15,9 @@ object HeimdallStartupManager {
     private const val PREF_KEY_PRESETS = "presets_json"
     private const val PREF_KEY_LAST_PRESET = "last_preset_name"
     private const val PREF_KEY_BATTERY_OVERRIDE_WHEN_PLUGGED = "battery_override_when_plugged"
+    private const val PREF_KEY_LOW_BATTERY_ALERT_ENABLED = "low_battery_alert_enabled"
+    private const val PREF_KEY_LOW_BATTERY_ALERT_THRESHOLD = "low_battery_alert_threshold"
+    private const val PREF_KEY_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING = "disable_low_battery_alert_while_charging"
     private const val PREF_KEY_PERSISTENT_NOTIFICATION = "persistent_notification_enabled"
     private const val PREF_KEY_APP_PROFILE_ENABLED = "auto_switch_enabled"
 
@@ -90,6 +93,23 @@ object HeimdallStartupManager {
             putExtra(
                 LEDService.EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
                 prefs.getBoolean(PREF_KEY_BATTERY_OVERRIDE_WHEN_PLUGGED, false)
+            )
+            val storedLowBatteryThreshold = prefs.getInt(PREF_KEY_LOW_BATTERY_ALERT_THRESHOLD, 0)
+            putExtra(
+                LEDService.EXTRA_LOW_BATTERY_ALERT_ENABLED,
+                if (prefs.contains(PREF_KEY_LOW_BATTERY_ALERT_ENABLED)) {
+                    prefs.getBoolean(PREF_KEY_LOW_BATTERY_ALERT_ENABLED, false)
+                } else {
+                    storedLowBatteryThreshold > 0
+                }
+            )
+            putExtra(
+                LEDService.EXTRA_LOW_BATTERY_ALERT_THRESHOLD,
+                storedLowBatteryThreshold.takeIf { it in 1..100 } ?: 20
+            )
+            putExtra(
+                LEDService.EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING,
+                prefs.getBoolean(PREF_KEY_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING, false)
             )
             putExtra(
                 LEDService.EXTRA_PERSISTENT_NOTIFICATION,

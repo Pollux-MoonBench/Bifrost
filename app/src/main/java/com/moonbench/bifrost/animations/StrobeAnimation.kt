@@ -9,7 +9,8 @@ import kotlin.math.roundToInt
 class StrobeAnimation(
     ledController: LedController,
     initialColor: Int,
-    initialRightColor: Int = initialColor
+    initialRightColor: Int = initialColor,
+    private val intervalMs: Long? = null
 ) : LedAnimation(ledController) {
 
     override val type: LedAnimationType = LedAnimationType.STROBE
@@ -69,7 +70,7 @@ class StrobeAnimation(
                 leftTop = false, leftBottom = false,
                 rightTop = true, rightBottom = true)
 
-            val delay = (100 - 70 * speed).toLong()
+            val delay = intervalMs ?: (100 - 70 * speed).toLong()
             handler.postDelayed(this, adjustedAnimationDelay(delay, targetBrightness))
         }
     }

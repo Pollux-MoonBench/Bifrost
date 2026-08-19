@@ -91,6 +91,7 @@ class LEDService : Service() {
         private const val TRANSITION_START_DELAY_MS = 100L
         private const val PROJECTION_RESTART_DELAY_MS = 150L
         private const val LED_OFF_SETTLE_DELAY_MS = 120L
+        private const val LOW_BATTERY_ALERT_INTERVAL_MS = 500L
 
         const val CHANNEL_ID = "LEDServiceChannel"
         const val NOTIFICATION_ID = 4242
@@ -106,6 +107,9 @@ class LEDService : Service() {
         const val EXTRA_EXTERNAL_PULSE_KIND = "external.pulseKind"
         const val EXTRA_ALLOW_BACKGROUND_RUN = "allowBackgroundRun"
         const val EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED = "batteryOverrideWhenPlugged"
+        const val EXTRA_LOW_BATTERY_ALERT_ENABLED = "lowBatteryAlertEnabled"
+        const val EXTRA_LOW_BATTERY_ALERT_THRESHOLD = "lowBatteryAlertThreshold"
+        const val EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING = "disableLowBatteryAlertWhileCharging"
         const val EXTRA_PERSISTENT_NOTIFICATION = "persistentNotification"
         const val EXTRA_ADAPTIVE_BRIGHTNESS = "adaptiveBrightness"
 
@@ -192,6 +196,9 @@ class LEDService : Service() {
     private var currentCpuWarmColorOverride: Int? = null
     private var currentCpuHotColorOverride: Int? = null
     private var currentBatteryOverrideWhenPlugged: Boolean = false
+    private var currentLowBatteryAlertEnabled: Boolean = false
+    private var currentLowBatteryAlertThreshold: Int = 20
+    private var currentDisableLowBatteryAlertWhileCharging: Boolean = false
     private var currentPersistentNotification: Boolean = true
     private var currentAdaptiveBrightness: Boolean = false
     private var allowBackgroundRun: Boolean = false
@@ -208,6 +215,8 @@ class LEDService : Service() {
     private var lastProjectionResultCode: Int = Activity.RESULT_OK
     private var lastProjectionData: Intent? = null
     private var isDevicePluggedIn: Boolean = false
+    private var batteryLevelPercent: Int = 100
+    private var isLowBatteryAlertActive: Boolean = false
     private var batteryReceiverRegistered: Boolean = false
     private var pendingTransitionRunnable: Runnable? = null
     private var pendingProjectionRunnable: Runnable? = null
@@ -348,8 +357,10 @@ class LEDService : Service() {
     private val batteryStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val batteryIntent = intent ?: return
-            if (updatePluggedState(batteryIntent)) {
-                restartAnimationForCurrentState()
+            val pluggedStateChanged = updatePluggedState(batteryIntent)
+            val alertStateChanged = updateBatteryAlertState(batteryIntent)
+            if (pluggedStateChanged || alertStateChanged) {
+                restartAnimationForCurrentState(force = alertStateChanged)
             }
         }
     }
@@ -397,7 +408,7 @@ class LEDService : Service() {
         mediaProjectionManager = getSystemService(MediaProjectionManager::class.java)
         ledController = LedController()
         registerBatteryStateReceiver()
-        refreshPluggedStateSnapshot()
+        refreshBatteryStateSnapshot()
         mountScreenBrightnessObserver()
         handler.post(activityCheckRunnable)
     }
@@ -450,6 +461,18 @@ class LEDService : Service() {
         currentBatteryOverrideWhenPlugged = intent.getBooleanExtra(
             EXTRA_BATTERY_OVERRIDE_WHEN_PLUGGED,
             currentBatteryOverrideWhenPlugged
+        )
+        currentLowBatteryAlertEnabled = intent.getBooleanExtra(
+            EXTRA_LOW_BATTERY_ALERT_ENABLED,
+            currentLowBatteryAlertEnabled
+        )
+        currentLowBatteryAlertThreshold = intent.getIntExtra(
+            EXTRA_LOW_BATTERY_ALERT_THRESHOLD,
+            currentLowBatteryAlertThreshold
+        ).coerceIn(1, 100)
+        currentDisableLowBatteryAlertWhileCharging = intent.getBooleanExtra(
+            EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING,
+            currentDisableLowBatteryAlertWhileCharging
         )
         currentPersistentNotification = intent.getBooleanExtra(
             EXTRA_PERSISTENT_NOTIFICATION,
@@ -553,7 +576,7 @@ class LEDService : Service() {
         isAppProfileSuppressed = false
 
 
-        refreshPluggedStateSnapshot()
+        refreshBatteryStateSnapshot()
 
         if (appProfileManager.isEnabled) {
             Log.d(TAG, "onStartCommand: app profile enabled, calling checkAutoProfileSwitch()")
@@ -748,9 +771,48 @@ class LEDService : Service() {
             )
             if (newBatteryOverrideWhenPlugged != currentBatteryOverrideWhenPlugged) {
                 currentBatteryOverrideWhenPlugged = newBatteryOverrideWhenPlugged
-                refreshPluggedStateSnapshot()
+                refreshBatteryStateSnapshot()
                 restartAnimationForCurrentState()
                 updateForegroundNotification()
+            }
+        }
+
+        if (intent.hasExtra(EXTRA_LOW_BATTERY_ALERT_ENABLED)) {
+            val enabled = intent.getBooleanExtra(
+                EXTRA_LOW_BATTERY_ALERT_ENABLED,
+                currentLowBatteryAlertEnabled
+            )
+            if (enabled != currentLowBatteryAlertEnabled) {
+                currentLowBatteryAlertEnabled = enabled
+                if (refreshBatteryStateSnapshot()) {
+                    restartAnimationForCurrentState(force = true)
+                }
+            }
+        }
+
+        if (intent.hasExtra(EXTRA_LOW_BATTERY_ALERT_THRESHOLD)) {
+            val newThreshold = intent.getIntExtra(
+                EXTRA_LOW_BATTERY_ALERT_THRESHOLD,
+                currentLowBatteryAlertThreshold
+            ).coerceIn(1, 100)
+            if (newThreshold != currentLowBatteryAlertThreshold) {
+                currentLowBatteryAlertThreshold = newThreshold
+                if (refreshBatteryStateSnapshot()) {
+                    restartAnimationForCurrentState(force = true)
+                }
+            }
+        }
+
+        if (intent.hasExtra(EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING)) {
+            val disabledWhileCharging = intent.getBooleanExtra(
+                EXTRA_DISABLE_LOW_BATTERY_ALERT_WHILE_CHARGING,
+                currentDisableLowBatteryAlertWhileCharging
+            )
+            if (disabledWhileCharging != currentDisableLowBatteryAlertWhileCharging) {
+                currentDisableLowBatteryAlertWhileCharging = disabledWhileCharging
+                if (refreshBatteryStateSnapshot()) {
+                    restartAnimationForCurrentState(force = true)
+                }
             }
         }
 
@@ -772,13 +834,18 @@ class LEDService : Service() {
             return
         }
 
-        if (isAppProfileSuppressed && !(currentBatteryOverrideWhenPlugged && isDevicePluggedIn)) {
+        if (isAppProfileSuppressed &&
+            !isLowBatteryAlertActive &&
+            !(currentBatteryOverrideWhenPlugged && isDevicePluggedIn)
+        ) {
             Log.d(TAG, "restartAnimationForCurrentState: app profile suppressed → stopping animation")
             stopCurrentAnimation()
             return
         }
 
         val effectiveType = resolveEffectiveAnimationType()
+        val effectiveColor = if (isLowBatteryAlertActive) Color.RED else currentColor
+        val effectiveRightColor = if (isLowBatteryAlertActive) Color.RED else currentRightColor
         Log.d(TAG, "restartAnimationForCurrentState: force=$force, effectiveType=$effectiveType, activeAnimationType=$activeAnimationType")
         if (!force && effectiveType == activeAnimationType) {
             Log.d(TAG, "restartAnimationForCurrentState: same type & not forced, skipping")
@@ -790,8 +857,8 @@ class LEDService : Service() {
             pendingTransitionRunnable = Runnable {
                 processAnimationChange(
                     effectiveType,
-                    currentColor,
-                    currentRightColor,
+                    effectiveColor,
+                    effectiveRightColor,
                     currentBrightness,
                     currentSpeed,
                     currentSmoothness,
@@ -805,8 +872,8 @@ class LEDService : Service() {
         } else {
             processAnimationChange(
                 effectiveType,
-                currentColor,
-                currentRightColor,
+                effectiveColor,
+                effectiveRightColor,
                 currentBrightness,
                 currentSpeed,
                 currentSmoothness,
@@ -819,6 +886,9 @@ class LEDService : Service() {
     }
 
     private fun resolveEffectiveAnimationType(): LedAnimationType {
+        if (isLowBatteryAlertActive) {
+            return LedAnimationType.STROBE
+        }
         // An active external override (a Bifrost plugin / third-party app
         // command via ACTION_DISPLAY) is an explicit, prioritised request and
         // takes precedence over everything passive: the charge-when-plugged
@@ -850,7 +920,10 @@ class LEDService : Service() {
             ).also { stickyIntent = it }
         }.isSuccess
         batteryReceiverRegistered = registered
-        stickyIntent?.let { updatePluggedState(it) }
+        stickyIntent?.let {
+            updatePluggedState(it)
+            updateBatteryAlertState(it)
+        }
     }
 
     private fun unregisterBatteryStateReceiver() {
@@ -867,13 +940,28 @@ class LEDService : Service() {
         return true
     }
 
-    private fun refreshPluggedStateSnapshot() {
+    private fun updateBatteryAlertState(intent: Intent): Boolean {
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        if (level >= 0 && scale > 0) {
+            batteryLevelPercent = (level * 100 / scale).coerceIn(0, 100)
+        }
+        val active = currentLowBatteryAlertEnabled &&
+            batteryLevelPercent < currentLowBatteryAlertThreshold &&
+            !(currentDisableLowBatteryAlertWhileCharging && isDevicePluggedIn)
+        if (active == isLowBatteryAlertActive) return false
+        isLowBatteryAlertActive = active
+        updateForegroundNotification()
+        return true
+    }
+
+    private fun refreshBatteryStateSnapshot(): Boolean {
         val stickyIntent = runCatching {
             registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         }.getOrNull()
-        if (stickyIntent != null) {
-            updatePluggedState(stickyIntent)
-        }
+        if (stickyIntent == null) return false
+        updatePluggedState(stickyIntent)
+        return updateBatteryAlertState(stickyIntent)
     }
 
     private fun processAnimationChange(
@@ -984,6 +1072,10 @@ class LEDService : Service() {
 
         if (activeExternalOverride != null) {
             Log.d(TAG, "checkAutoProfileSwitch: external override active, skipping")
+            return
+        }
+
+        if (isLowBatteryAlertActive) {
             return
         }
 
@@ -1490,6 +1582,9 @@ class LEDService : Service() {
         }
 
         refreshPipboyWakeLock()   // acquire if this override is PIPBOY
+        if (isLowBatteryAlertActive && activeAnimationType == LedAnimationType.STROBE) {
+            return
+        }
         restartAnimationForCurrentState(force = true)
     }
 
@@ -1791,7 +1886,12 @@ class LEDService : Service() {
             LedAnimationType.BREATH -> BreathAnimation(ledController, color, rightColor)
             LedAnimationType.RAINBOW -> RainbowAnimation(ledController)
             LedAnimationType.PULSE -> PulseAnimation(ledController, color, rightColor)
-            LedAnimationType.STROBE -> StrobeAnimation(ledController, color, rightColor)
+            LedAnimationType.STROBE -> StrobeAnimation(
+                ledController,
+                color,
+                rightColor,
+                if (isLowBatteryAlertActive) LOW_BATTERY_ALERT_INTERVAL_MS else null
+            )
             LedAnimationType.SPARKLE -> SparkleAnimation(ledController, color, rightColor)
             LedAnimationType.FADE_TRANSITION -> FadeTransitionAnimation(
                 ledController,
