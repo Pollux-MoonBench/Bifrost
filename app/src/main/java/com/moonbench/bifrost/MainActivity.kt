@@ -2613,7 +2613,7 @@ class MainActivity : AppCompatActivity() {
 
                     if (wasRunning) {
                         if (selectedAnimationType.needsMediaProjection) {
-                            if (mediaProjectionResultCode == null || mediaProjectionData == null) {
+                            if (!hasUsableProjectionGrant()) {
                                 checkRagnarokWarningAndRestart(true)
                             } else {
                                 checkRagnarokWarningAndRestart()
@@ -3239,9 +3239,7 @@ class MainActivity : AppCompatActivity() {
     private fun maybeAutoStartHeimdallOnLaunch() {
         if (!HeimdallStartupManager.isAutoStartEnabled(prefs) || LEDService.isRunning) return
         if (!checkNotificationPermission()) return
-        if (requiresProjectionToken(selectedAnimationType) &&
-            (mediaProjectionResultCode == null || mediaProjectionData == null)
-        ) {
+        if (requiresProjectionToken(selectedAnimationType) && !hasUsableProjectionGrant()) {
             return
         }
 
@@ -3514,7 +3512,7 @@ class MainActivity : AppCompatActivity() {
                         // Just keep the service running; the periodic check will
                         // resolve the correct preset.
                     } else if (selectedAnimationType.needsMediaProjection) {
-                        if (mediaProjectionResultCode == null || mediaProjectionData == null) {
+                        if (!hasUsableProjectionGrant()) {
                             handleMediaProjectionRequirement()
                         } else {
                             startService(createLedServiceIntent())
@@ -4122,7 +4120,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (requiresProjectionToken(selectedAnimationType)) {
-            if (mediaProjectionResultCode != null && mediaProjectionData != null) {
+            if (hasUsableProjectionGrant()) {
                 serviceController.startDebounced { createLedServiceIntent() }
             } else {
                 requestScreenCapturePermission()
@@ -4155,6 +4153,10 @@ class MainActivity : AppCompatActivity() {
         ).show()
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
     }
+
+    private fun hasUsableProjectionGrant(): Boolean =
+        LEDService.hasLiveProjection ||
+            (mediaProjectionResultCode != null && mediaProjectionData != null)
 
     private fun requiresProjectionToken(type: LedAnimationType): Boolean {
         if (type == LedAnimationType.AMBIENT) {
@@ -4242,6 +4244,8 @@ class MainActivity : AppCompatActivity() {
             if (shouldIncludeMP) {
                 putExtra("resultCode", mediaProjectionResultCode)
                 putExtra("data", mediaProjectionData)
+                mediaProjectionResultCode = null
+                mediaProjectionData = null
             }
         }
     }

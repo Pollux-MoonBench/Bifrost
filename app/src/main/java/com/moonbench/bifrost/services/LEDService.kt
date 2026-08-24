@@ -156,6 +156,9 @@ class LEDService : Service() {
         const val PREF_AMBILIGHT_USE_MEDIA_PROJECTION = "ambilight_use_media_projection"
         const val DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION = true
         var isRunning = false
+
+        @Volatile
+        var hasLiveProjection = false
     }
 
     private var mediaProjection: MediaProjection? = null
@@ -214,6 +217,7 @@ class LEDService : Service() {
     private var activeAnimationType: LedAnimationType? = null
     private var lastProjectionResultCode: Int = Activity.RESULT_OK
     private var lastProjectionData: Intent? = null
+    private var projectionTokenUsed: Boolean = true
     private var isDevicePluggedIn: Boolean = false
     private var batteryLevelPercent: Int = 100
     private var isLowBatteryAlertActive: Boolean = false
@@ -484,29 +488,13 @@ class LEDService : Service() {
         )
 
         val notification = createNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val willUseProjection = intent.hasExtra("data") ||
-                lastProjectionData != null ||
-                synchronized(mediaProjectionLock) { mediaProjection != null }
-
-            when {
-                willUseProjection -> startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                )
-
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                )
-
-                else -> startForeground(NOTIFICATION_ID, notification)
-            }
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        val intentCarriesFreshToken = intent.hasExtra("data") &&
+            intent.getParcelableExtra<Intent>("data") != null &&
+            intent.getIntExtra("resultCode", Activity.RESULT_CANCELED) == Activity.RESULT_OK
+        startForegroundSafely(
+            notification,
+            useProjectionType = hasUsableProjectionGrant(intentCarriesFreshToken)
+        )
 
         isRunning = true
         BifrostTileService.refreshFrom(this)
@@ -556,6 +544,7 @@ class LEDService : Service() {
         }
         if (intent.hasExtra("data")) {
             val intentData: Intent? = intent.getParcelableExtra("data")
+            if (intentData != null) projectionTokenUsed = false
             if (intentData != null || !appProfileManager.isEnabled) {
                 lastProjectionData = intentData
             }
@@ -987,7 +976,8 @@ class LEDService : Service() {
 
         stopCurrentAnimation()
 
-        if (needsMediaProjection(animationType) && resultCode == Activity.RESULT_OK && data != null) {
+        val canRebuildProjection = !projectionTokenUsed && resultCode == Activity.RESULT_OK && data != null
+        if (needsMediaProjection(animationType) && canRebuildProjection) {
             pendingTransitionRunnable = Runnable {
                 try {
                     if (isRunning && !isStopping.get()) {
@@ -1048,6 +1038,51 @@ class LEDService : Service() {
         synchronized(mediaProjectionLock) {
             runCatching { mediaProjection?.stop() }
             mediaProjection = null
+            hasLiveProjection = false
+        }
+    }
+
+    private fun invalidateProjectionGrant() {
+        lastProjectionData = null
+        lastProjectionResultCode = Activity.RESULT_CANCELED
+        projectionTokenUsed = true
+        clearMediaProjection()
+    }
+
+    private fun hasUsableProjectionGrant(intentCarriesFreshToken: Boolean): Boolean {
+        if (synchronized(mediaProjectionLock) { mediaProjection != null }) return true
+        if (intentCarriesFreshToken) return true
+        return !projectionTokenUsed &&
+            lastProjectionResultCode == Activity.RESULT_OK &&
+            lastProjectionData != null
+    }
+
+    private fun startForegroundSafely(notification: Notification, useProjectionType: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification)
+            return
+        }
+        if (useProjectionType) {
+            try {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+                return
+            } catch (e: SecurityException) {
+                Log.w(TAG, "startForeground(mediaProjection) denied — dropping stale grant", e)
+                invalidateProjectionGrant()
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
         }
     }
 
@@ -1060,6 +1095,9 @@ class LEDService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "replaceMediaProjection: FAILED to create projection", e)
                 mediaProjection = null
+            } finally {
+                projectionTokenUsed = true
+                hasLiveProjection = mediaProjection != null
             }
         }
     }
@@ -1106,7 +1144,7 @@ class LEDService : Service() {
         }
 
         val needsMP = needsMediaProjection(preset.animationType)
-        val hasProjectionData = lastProjectionResultCode == Activity.RESULT_OK && lastProjectionData != null
+        val hasProjectionData = hasUsableProjectionGrant(intentCarriesFreshToken = false)
         Log.d(TAG, "checkAutoProfileSwitch: needsMP=$needsMP, hasProjectionData=$hasProjectionData, lastProjectionResultCode=$lastProjectionResultCode, lastProjectionData=${lastProjectionData != null}")
 
         if (needsMP && !hasProjectionData) {
@@ -1401,6 +1439,7 @@ class LEDService : Service() {
         // single-use consent token before it is needed.
         lastProjectionResultCode = resultCode
         lastProjectionData = data
+        projectionTokenUsed = false
         Log.d(TAG, "handleSupplyProjection: stored projection token")
 
         appProfileManager.clearPendingProjectionToken()
@@ -1829,10 +1868,14 @@ class LEDService : Service() {
                 // can only mirror the default display, but mirror mode targets
                 // whichever (possibly secondary) display shows the Pip-Boy.
                 val useMP = !mirrorMode && prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
+                val projection = if (useMP) synchronized(mediaProjectionLock) { mediaProjection } else null
+                if (useMP && projection == null && !BifrostAccessibilityService.isEnabled(this)) {
+                    showProjectionPromptNotification()
+                }
                 val displayMetrics = getDisplayMetrics(currentAmbientDisplayId)
                 AmbientAnimation(
                     ledController,
-                    if (useMP) synchronized(mediaProjectionLock) { mediaProjection } else null,
+                    projection,
                     displayMetrics,
                     profile,
                     currentUseCustomSampling,
