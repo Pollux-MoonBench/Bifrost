@@ -159,6 +159,13 @@ class LEDService : Service() {
 
         @Volatile
         var hasLiveProjection = false
+
+        // Which animation type hasLiveProjection's capture actually backs —
+        // a live projection for AMBIENT isn't usable for AMBIAURORA without
+        // rebuilding the capture, so MainActivity needs this to avoid
+        // treating "some projection is live" as "this projection is usable".
+        @Volatile
+        var liveProjectionAnimationType: LedAnimationType? = null
     }
 
     private var mediaProjection: MediaProjection? = null
@@ -974,7 +981,43 @@ class LEDService : Service() {
         // Apply adaptive brightness scaling on top of the user-configured brightness level.
         val resolvedBrightness = effectiveBrightness()
 
+        // The same MP-based animation is already active with a live capture —
+        // update it in place instead of tearing it down and recreating it.
+        // A MediaProjection instance only supports one createVirtualDisplay()
+        // call over its lifetime on this Android version, so a full
+        // stop+restart for a redundant trigger (resync, preset re-apply)
+        // kills the effect outright with "Don't take multiple captures... on
+        // the same instance" — even though startForegroundSafely's fallback
+        // only guards the FGS type claim, not this deeper capture call.
+        // Profile/sampling/saturation/display-id changes are baked into the
+        // animation at construction, so they won't apply this way — those
+        // still require a genuine type change.
+        val liveAnimation = currentAnimation
+        if (needsMediaProjection(animationType) &&
+            animationType == activeAnimationType &&
+            liveAnimation != null &&
+            synchronized(mediaProjectionLock) { mediaProjection != null }
+        ) {
+            currentColor = color
+            currentRightColor = rightColor
+            liveAnimation.setTargetBrightness(resolvedBrightness)
+            liveAnimation.setSpeed(speed)
+            liveAnimation.setLerpStrength(smoothness)
+            liveAnimation.setSensitivity(sensitivity)
+            isTransitioning.set(false)
+            return
+        }
+
         stopCurrentAnimation()
+
+        // Not reusing in place — a live projection here can't be captured
+        // from again (createVirtualDisplay is single-use per instance), so
+        // drop it now instead of leaving a dead reference for the next
+        // animation (same type with a spent token, or a genuine type change)
+        // to crash on.
+        if (synchronized(mediaProjectionLock) { mediaProjection != null }) {
+            clearMediaProjection()
+        }
 
         val canRebuildProjection = !projectionTokenUsed && resultCode == Activity.RESULT_OK && data != null
         if (needsMediaProjection(animationType) && canRebuildProjection) {
@@ -1040,6 +1083,7 @@ class LEDService : Service() {
             mediaProjection = null
             hasLiveProjection = false
         }
+        liveProjectionAnimationType = null
     }
 
     private fun invalidateProjectionGrant() {
@@ -1412,6 +1456,9 @@ class LEDService : Service() {
             }
             animation.start()
             activeAnimationType = type
+            if (needsMediaProjection(type) && synchronized(mediaProjectionLock) { mediaProjection != null }) {
+                liveProjectionAnimationType = type
+            }
             if (mirrorMode && type == LedAnimationType.AMBIENT) {
                 mirrorRunningDisplayId = currentAmbientDisplayId
             }
