@@ -825,9 +825,16 @@ class MainActivity : AppCompatActivity() {
             enableRainbowBackground(isChecked)
 
             if (isChecked) {
-                if (!LEDService.isRunning) {
-                    playBifrostHeaderAnimation()
+                if (LEDService.isRunning) {
+                    // Toggle was flipped to reflect an already-running service
+                    // (e.g. onResume syncing state on a freshly recreated
+                    // Activity) — nothing to start. Re-running the start flow
+                    // here would tear down and rebuild the live capture for
+                    // no reason, which Android rejects once it's already in
+                    // use (see processAnimationChange's in-place reuse path).
+                    return@setOnCheckedChangeListener
                 }
+                playBifrostHeaderAnimation()
                 handleStartWithCurrentSelection()
             } else {
                 serviceController.stopDebounced()
@@ -2612,8 +2619,8 @@ class MainActivity : AppCompatActivity() {
                     updateParameterVisibility()
 
                     if (wasRunning) {
-                        if (selectedAnimationType.needsMediaProjection) {
-                            if (!hasUsableProjectionGrant()) {
+                        if (requiresProjectionToken(selectedAnimationType)) {
+                            if (!hasUsableProjectionGrant(selectedAnimationType)) {
                                 checkRagnarokWarningAndRestart(true)
                             } else {
                                 checkRagnarokWarningAndRestart()
@@ -3239,7 +3246,7 @@ class MainActivity : AppCompatActivity() {
     private fun maybeAutoStartHeimdallOnLaunch() {
         if (!HeimdallStartupManager.isAutoStartEnabled(prefs) || LEDService.isRunning) return
         if (!checkNotificationPermission()) return
-        if (requiresProjectionToken(selectedAnimationType) && !hasUsableProjectionGrant()) {
+        if (requiresProjectionToken(selectedAnimationType) && !hasUsableProjectionGrant(selectedAnimationType)) {
             return
         }
 
@@ -3511,8 +3518,8 @@ class MainActivity : AppCompatActivity() {
                     if (::appProfileManager.isInitialized && appProfileManager.isEnabled) {
                         // Just keep the service running; the periodic check will
                         // resolve the correct preset.
-                    } else if (selectedAnimationType.needsMediaProjection) {
-                        if (!hasUsableProjectionGrant()) {
+                    } else if (requiresProjectionToken(selectedAnimationType)) {
+                        if (!hasUsableProjectionGrant(selectedAnimationType)) {
                             handleMediaProjectionRequirement()
                         } else {
                             startService(createLedServiceIntent())
@@ -4120,7 +4127,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (requiresProjectionToken(selectedAnimationType)) {
-            if (hasUsableProjectionGrant()) {
+            if (hasUsableProjectionGrant(selectedAnimationType)) {
                 serviceController.startDebounced { createLedServiceIntent() }
             } else {
                 requestScreenCapturePermission()
@@ -4154,8 +4161,8 @@ class MainActivity : AppCompatActivity() {
         screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
     }
 
-    private fun hasUsableProjectionGrant(): Boolean =
-        LEDService.hasLiveProjection ||
+    private fun hasUsableProjectionGrant(type: LedAnimationType): Boolean =
+        (LEDService.hasLiveProjection && LEDService.liveProjectionAnimationType == type) ||
             (mediaProjectionResultCode != null && mediaProjectionData != null)
 
     private fun requiresProjectionToken(type: LedAnimationType): Boolean {
