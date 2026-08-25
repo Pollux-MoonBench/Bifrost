@@ -4176,7 +4176,12 @@ class MainActivity : AppCompatActivity() {
         if (type == LedAnimationType.AMBIENT) {
             return !prefs.getBoolean(PREF_AMBILIGHT_USE_MEDIA_PROJECTION, LEDService.DEFAULT_AMBILIGHT_USE_MEDIA_PROJECTION)
         }
-        return type == LedAnimationType.AMBIAURORA
+        // AmbiAurora only ever reads the screen via MediaProjection
+        // (LEDService.createAnimation's AMBIAURORA branch never touches
+        // BifrostAccessibilityService), so it doesn't belong here — this used
+        // to unconditionally return true and blocked activation behind an
+        // Accessibility prompt that did nothing for this effect.
+        return false
     }
 
     private fun getAmbientTargetDisplayId(): Int {
